@@ -35,15 +35,14 @@ export default function App() {
   }
 
   async function saveCurrentPhoto() {
-    setEditingPhotoId(null);
     setShowTitleModal(true);
   }
 
-  async function confirmSave(title) {
+  async function confirmSave(title, currentEditingId) {
     try {
       let updated;
-      if (editingPhotoId) {
-        updated = savedPhotos.map(p => p.id === editingPhotoId ? { ...p, title: title || 'Untitled', pins } : p);
+      if (currentEditingId) {
+        updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins } : p);
       } else {
         const newEntry = { id: Date.now(), uri: photo, pins, title: title || 'Untitled' };
         updated = [newEntry, ...savedPhotos];
@@ -54,7 +53,7 @@ export default function App() {
       setShowTitleModal(false);
       setTitleText('');
       setEditingPhotoId(null);
-      alert(editingPhotoId ? 'Photo updated!' : 'Photo saved!');
+      alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -256,7 +255,7 @@ export default function App() {
                 onChangeText={setTitleText}
                 autoFocus
               />
-              <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText)}>
+              <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
                 <Text style={styles.saveText}>Save</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
