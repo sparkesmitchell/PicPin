@@ -4,8 +4,20 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { Button, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+
+const COLORS = {
+  bg: '#0f0f0f',
+  surface: '#1c1c1e',
+  surface2: '#2c2c2e',
+  accent: '#0a84ff',
+  danger: '#ff453a',
+  success: '#32d74b',
+  text: '#ffffff',
+  textSecondary: '#ebebf599',
+  border: '#38383a',
+};
 
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -21,17 +33,13 @@ export default function App() {
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
 
-  useEffect(() => {
-    loadSavedPhotos();
-  }, []);
+  useEffect(() => { loadSavedPhotos(); }, []);
 
   async function loadSavedPhotos() {
     try {
       const data = await AsyncStorage.getItem('savedPhotos');
       if (data) setSavedPhotos(JSON.parse(data));
-    } catch (e) {
-      console.log('Error loading photos', e);
-    }
+    } catch (e) { console.log('Error loading photos', e); }
   }
 
   async function saveCurrentPhoto() {
@@ -54,9 +62,7 @@ export default function App() {
       setTitleText('');
       setEditingPhotoId(null);
       alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    } catch (e) { alert('Error: ' + e.message); }
   }
 
   async function deletePhoto(id) {
@@ -88,23 +94,16 @@ export default function App() {
     try {
       const uri = await viewShotRef.current.capture();
       await Sharing.shareAsync(uri);
-    } catch (e) {
-      alert('Error sharing: ' + e.message);
-    }
+    } catch (e) { alert('Error sharing: ' + e.message); }
   }
 
   async function saveGalleryPhotoToRoll(uri) {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Permission needed to save to camera roll');
-        return;
-      }
+      if (status !== 'granted') { alert('Permission needed'); return; }
       await MediaLibrary.saveToLibraryAsync(uri);
       alert('Saved to camera roll!');
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    } catch (e) { alert('Error: ' + e.message); }
   }
 
   function handleImageTap(event) {
@@ -143,8 +142,10 @@ export default function App() {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.message}>We need your permission to use the camera</Text>
-        <Button onPress={requestPermission} title="Grant Permission" />
+        <Text style={styles.message}>Camera access is needed to use PinNotes</Text>
+        <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -152,29 +153,37 @@ export default function App() {
   if (showGallery) {
     return (
       <View style={styles.container}>
-        <View style={styles.galleryHeader}>
-          <TouchableOpacity onPress={() => setShowGallery(false)}>
-            <Text style={styles.backText}>← Back</Text>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
+            <Text style={styles.headerBackText}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.galleryTitle}>Saved Photos</Text>
+          <Text style={styles.headerTitle}>My Photos</Text>
+          <View style={{ width: 70 }} />
         </View>
-        <ScrollView>
+        <ScrollView contentContainerStyle={styles.galleryGrid}>
           {savedPhotos.length === 0 && (
-            <Text style={styles.emptyText}>No saved photos yet!</Text>
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>📷</Text>
+              <Text style={styles.emptyTitle}>No photos yet</Text>
+              <Text style={styles.emptySubtitle}>Take a photo and save it to see it here</Text>
+            </View>
           )}
-           {savedPhotos.map(entry => (
-            <View key={entry.id} style={styles.galleryItem}>
-              <TouchableOpacity onPress={() => openSavedPhoto(entry)} style={styles.thumbnailContainer}>
+          {savedPhotos.map(entry => (
+            <View key={entry.id} style={styles.galleryCard}>
+              <TouchableOpacity onPress={() => openSavedPhoto(entry)}>
                 <Image source={{ uri: entry.uri }} style={styles.thumbnail} />
-                <Text style={styles.galleryItemTitle}>{entry.title || 'Untitled'}</Text>
-                <Text style={styles.pinCount}>{entry.pins.length} pin(s)</Text>
+                <View style={styles.cardInfo}>
+                  <Text style={styles.cardTitle}>{entry.title || 'Untitled'}</Text>
+                  <Text style={styles.cardPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
+                </View>
               </TouchableOpacity>
-              <View style={styles.galleryActions}>
-                <TouchableOpacity style={styles.saveRollButton} onPress={() => saveGalleryPhotoToRoll(entry.uri)}>
-                  <Text style={styles.saveRollText}>💾 Save</Text>
+              <View style={styles.cardActions}>
+                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.uri)}>
+                  <Text style={styles.cardActionText}>💾 Save</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deletePhotoButton} onPress={() => deletePhoto(entry.id)}>
-                  <Text style={styles.deletePhotoText}>🗑 Delete</Text>
+                <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
+                  <Text style={styles.cardActionText}>🗑 Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -187,6 +196,7 @@ export default function App() {
   if (photo) {
     return (
       <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
         <ViewShot ref={viewShotRef} style={styles.imageContainer}>
           <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
             <Image source={{ uri: photo }} style={styles.camera} />
@@ -208,34 +218,40 @@ export default function App() {
         </ViewShot>
 
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.bottomButton} onPress={() => setPhoto(null)}>
-            <Text style={styles.bottomButtonText}>Retake</Text>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
+            <Text style={styles.iconBtnIcon}>✕</Text>
+            <Text style={styles.iconBtnLabel}>Retake</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.bottomButton, styles.savePhotoButton]} onPress={saveCurrentPhoto}>
-            <Text style={styles.bottomButtonText}>Save Photo</Text>
+          <TouchableOpacity style={styles.iconBtn} onPress={sharePhoto}>
+            <Text style={styles.iconBtnIcon}>↗</Text>
+            <Text style={styles.iconBtnLabel}>Share</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomButton} onPress={sharePhoto}>
-            <Text style={styles.bottomButtonText}>Share</Text>
+          <TouchableOpacity style={[styles.iconBtn, styles.iconBtnAccent]} onPress={saveCurrentPhoto}>
+            <Text style={styles.iconBtnIcon}>💾</Text>
+            <Text style={styles.iconBtnLabel}>Save</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomButton} onPress={() => setShowGallery(true)}>
-            <Text style={styles.bottomButtonText}>Gallery</Text>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
+            <Text style={styles.iconBtnIcon}>▦</Text>
+            <Text style={styles.iconBtnLabel}>Gallery</Text>
           </TouchableOpacity>
         </View>
 
         <Modal visible={selectedPin !== null} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Pin Note</Text>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>📍 Pin Note</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="Add a note..."
+                placeholderTextColor={COLORS.textSecondary}
                 value={noteText}
                 onChangeText={setNoteText}
                 multiline
                 autoFocus
               />
               <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
-                <Text style={styles.saveText}>Save</Text>
+                <Text style={styles.saveText}>Save Note</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
                 <Text style={styles.deleteText}>Delete Pin</Text>
@@ -247,10 +263,12 @@ export default function App() {
         <Modal visible={showTitleModal} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
+              <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>Name this photo</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="e.g. Living room inspection"
+                placeholderTextColor={COLORS.textSecondary}
                 value={titleText}
                 onChangeText={setTitleText}
                 autoFocus
@@ -270,145 +288,136 @@ export default function App() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
       <CameraView style={styles.camera} facing="back" ref={cameraRef} />
-      <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
-        <View style={styles.captureInner} />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.galleryButton} onPress={() => setShowGallery(true)}>
-        <Text style={styles.galleryButtonText}>Gallery</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.pickButton} onPress={pickFromGallery}>
-        <Text style={styles.galleryButtonText}>📷 Roll</Text>
-      </TouchableOpacity>
+      <View style={styles.cameraTopBar}>
+        <Text style={styles.appName}>PinNotes</Text>
+      </View>
+      <View style={styles.cameraBottomBar}>
+        <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
+          <Text style={styles.sideBtnIcon}>📷</Text>
+          <Text style={styles.sideBtnLabel}>Roll</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+          <View style={styles.captureInner} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
+          <Text style={styles.sideBtnIcon}>▦</Text>
+          <Text style={styles.sideBtnLabel}>Gallery</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  message: { textAlign: 'center', paddingBottom: 10, color: '#fff' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
+  message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
+  permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
+  permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   camera: { flex: 1 },
   imageContainer: { flex: 1 },
+
+  // Camera screen
+  cameraTopBar: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+  },
+  appName: { color: '#fff', fontSize: 20, fontWeight: '700', letterSpacing: 1 },
+  cameraBottomBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    paddingBottom: 48, paddingTop: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  captureButton: {
+    width: 76, height: 76, borderRadius: 38,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)',
+  },
+  captureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
+  sideBtn: { alignItems: 'center', width: 64 },
+  sideBtnIcon: { fontSize: 26 },
+  sideBtnLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 4 },
+
+  // Photo view
+  bottomBar: {
+    flexDirection: 'row', justifyContent: 'space-around',
+    paddingVertical: 16, paddingBottom: 36,
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+  },
+  iconBtn: { alignItems: 'center', padding: 10, borderRadius: 12, minWidth: 70, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border },
+  iconBtnAccent: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  iconBtnIcon: { fontSize: 22 },
+  iconBtnLabel: { color: COLORS.text, fontSize: 11, marginTop: 4 },
+
+  // Pins
   pin: { position: 'absolute', alignItems: 'center' },
   pinEmoji: { fontSize: 28 },
   notePreview: {
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    maxWidth: 100,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3,
+    maxWidth: 120, marginTop: 2,
   },
   notePreviewText: { color: '#fff', fontSize: 10 },
-  captureButton: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
+
+  // Gallery
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16,
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
-  captureInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#fff' },
-  galleryButton: {
-    position: 'absolute',
-    bottom: 50,
-    right: 30,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 10,
-    borderRadius: 8,
+  headerBack: { width: 70 },
+  headerBackText: { color: COLORS.accent, fontSize: 16 },
+  headerTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
+  galleryGrid: { padding: 16, gap: 16 },
+  galleryCard: {
+    backgroundColor: COLORS.surface, borderRadius: 16, overflow: 'hidden',
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  galleryButtonText: { color: '#fff', fontSize: 14 },
-  bottomBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    padding: 16,
-    backgroundColor: '#111',
-  },
-  bottomButton: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    padding: 12,
-    borderRadius: 8,
-    minWidth: 90,
-    alignItems: 'center',
-  },
-  savePhotoButton: { backgroundColor: '#007AFF' },
-  bottomButtonText: { color: '#fff', fontSize: 14 },
-  galleryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    paddingTop: 50,
-    backgroundColor: '#111',
-  },
-  backText: { color: '#007AFF', fontSize: 16, marginRight: 16 },
-  galleryTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  emptyText: { color: '#aaa', textAlign: 'center', marginTop: 40, fontSize: 16 },
-  thumbnail: { width: '100%', height: 200, marginBottom: 4 },
-  pinCount: { color: '#aaa', fontSize: 12, padding: 8 },
+  thumbnail: { width: '100%', height: 220 },
+  cardInfo: { padding: 12 },
+  cardTitle: { color: COLORS.text, fontSize: 16, fontWeight: '600' },
+  cardPins: { color: COLORS.textSecondary, fontSize: 13, marginTop: 2 },
+  cardActions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: COLORS.border },
+  cardActionBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2 },
+  cardDeleteBtn: { backgroundColor: '#2c1a1a', borderLeftWidth: 1, borderLeftColor: COLORS.border },
+  cardActionText: { color: COLORS.text, fontSize: 13 },
+  emptyState: { alignItems: 'center', paddingTop: 80 },
+  emptyEmoji: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  emptySubtitle: { color: COLORS.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
+
+  // Modals
   modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    flex: 1, justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     paddingBottom: 300,
   },
   modalBox: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    paddingBottom: 40,
+    backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 40,
   },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: COLORS.border, alignSelf: 'center', marginBottom: 20,
+  },
+  modalTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
   textInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 16,
-    minHeight: 80,
-    marginBottom: 12,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.text,
+    minHeight: 90, marginBottom: 16,
   },
   saveButton: {
-    backgroundColor: '#007AFF',
-    padding: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 8,
+    backgroundColor: COLORS.accent, padding: 16,
+    borderRadius: 12, alignItems: 'center', marginBottom: 8,
   },
-  saveText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  deleteButton: { padding: 14, borderRadius: 10, alignItems: 'center' },
-  deleteText: { color: 'red', fontSize: 16 },
-
-    galleryItem: { marginBottom: 16 },
-  thumbnailContainer: { width: '100%' },
-  deletePhotoButton: {
-    backgroundColor: '#ff3b30',
-    padding: 10,
-    alignItems: 'center',
-  },
-  deletePhotoText: { color: '#fff', fontSize: 14 },
-
-  pickButton: {
-    position: 'absolute',
-    bottom: 50,
-    left: 30,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 10,
-    borderRadius: 8,
-  },
-
-  galleryItemTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', padding: 8 },
-
-  galleryActions: {
-    flexDirection: 'row',
-  },
-  saveRollButton: {
-    flex: 1,
-    backgroundColor: '#34c759',
-    padding: 10,
-    alignItems: 'center',
-  },
-  saveRollText: { color: '#fff', fontSize: 14 },
+  saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  deleteButton: { padding: 14, borderRadius: 12, alignItems: 'center' },
+  deleteText: { color: COLORS.danger, fontSize: 16 },
 });
