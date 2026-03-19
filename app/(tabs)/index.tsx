@@ -48,11 +48,12 @@ export default function App() {
 
   async function confirmSave(title, currentEditingId) {
     try {
+      const flatUri = await viewShotRef.current.capture();
       let updated;
       if (currentEditingId) {
-        updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins } : p);
+        updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
       } else {
-        const newEntry = { id: Date.now(), uri: photo, pins, title: title || 'Untitled' };
+        const newEntry = { id: Date.now(), uri: photo, flatUri, pins, title: title || 'Untitled' };
         updated = [newEntry, ...savedPhotos];
       }
       const jsonString = JSON.stringify(updated);
@@ -172,7 +173,7 @@ export default function App() {
           {savedPhotos.map(entry => (
             <View key={entry.id} style={styles.galleryCard}>
               <TouchableOpacity onPress={() => openSavedPhoto(entry)}>
-                <Image source={{ uri: entry.uri }} style={styles.thumbnail} />
+                <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.thumbnail} />
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardTitle}>{entry.title || 'Untitled'}</Text>
                   <Text style={styles.cardPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
@@ -206,7 +207,7 @@ export default function App() {
                 style={[styles.pin, { left: pin.x - 15, top: pin.y - 15 }]}
                 onPress={(e) => handlePinTap(e, pin)}
               >
-                <Text style={styles.pinEmoji}>📍</Text>
+                <View style={styles.pinDot} />
                 {pin.note ? (
                   <View style={styles.notePreview}>
                     <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
@@ -357,7 +358,14 @@ const styles = StyleSheet.create({
 
   // Pins
   pin: { position: 'absolute', alignItems: 'center' },
-  pinEmoji: { fontSize: 28 },
+  pinEmoji: { display: 'none' },
+  pinDot: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: '#ff3b30',
+    borderWidth: 2.5, borderColor: '#fff',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 3,
+  },
   notePreview: {
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3,
