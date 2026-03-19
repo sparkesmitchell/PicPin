@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -16,6 +17,7 @@ export default function App() {
   const [showGallery, setShowGallery] = useState(false);
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
+  const [editingPhotoId, setEditingPhotoId] = useState(null);
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
 
@@ -33,19 +35,26 @@ export default function App() {
   }
 
   async function saveCurrentPhoto() {
+    setEditingPhotoId(null);
     setShowTitleModal(true);
   }
 
   async function confirmSave(title) {
     try {
-      const newEntry = { id: Date.now(), uri: photo, pins, title: title || 'Untitled' };
-      const updated = [newEntry, ...savedPhotos];
+      let updated;
+      if (editingPhotoId) {
+        updated = savedPhotos.map(p => p.id === editingPhotoId ? { ...p, title: title || 'Untitled', pins } : p);
+      } else {
+        const newEntry = { id: Date.now(), uri: photo, pins, title: title || 'Untitled' };
+        updated = [newEntry, ...savedPhotos];
+      }
       const jsonString = JSON.stringify(updated);
       await AsyncStorage.setItem('savedPhotos', jsonString);
       setSavedPhotos(JSON.parse(jsonString));
       setShowTitleModal(false);
       setTitleText('');
-      alert('Photo saved!');
+      setEditingPhotoId(null);
+      alert(editingPhotoId ? 'Photo updated!' : 'Photo saved!');
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -85,6 +94,20 @@ export default function App() {
     }
   }
 
+  async function saveGalleryPhotoToRoll(uri) {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission needed to save to camera roll');
+        return;
+      }
+      await MediaLibrary.saveToLibraryAsync(uri);
+      alert('Saved to camera roll!');
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
   function handleImageTap(event) {
     const { locationX, locationY } = event.nativeEvent;
     const newPin = { id: Date.now(), x: locationX, y: locationY, note: '' };
@@ -112,6 +135,7 @@ export default function App() {
   function openSavedPhoto(entry) {
     setPhoto(entry.uri);
     setPins(entry.pins);
+    setEditingPhotoId(entry.id);
     setShowGallery(false);
   }
 
@@ -146,9 +170,14 @@ export default function App() {
                 <Text style={styles.galleryItemTitle}>{entry.title || 'Untitled'}</Text>
                 <Text style={styles.pinCount}>{entry.pins.length} pin(s)</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.deletePhotoButton} onPress={() => deletePhoto(entry.id)}>
-                <Text style={styles.deletePhotoText}>🗑 Delete</Text>
-              </TouchableOpacity>
+              <View style={styles.galleryActions}>
+                <TouchableOpacity style={styles.saveRollButton} onPress={() => saveGalleryPhotoToRoll(entry.uri)}>
+                  <Text style={styles.saveRollText}>💾 Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deletePhotoButton} onPress={() => deletePhoto(entry.id)}>
+                  <Text style={styles.deletePhotoText}>🗑 Delete</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))}
         </ScrollView>
@@ -372,4 +401,15 @@ const styles = StyleSheet.create({
   },
 
   galleryItemTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', padding: 8 },
+
+  galleryActions: {
+    flexDirection: 'row',
+  },
+  saveRollButton: {
+    flex: 1,
+    backgroundColor: '#34c759',
+    padding: 10,
+    alignItems: 'center',
+  },
+  saveRollText: { color: '#fff', fontSize: 14 },
 });
