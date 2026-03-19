@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -51,6 +52,17 @@ export default function App() {
     if (cameraRef.current) {
       const result = await cameraRef.current.takePictureAsync();
       setPhoto(result.uri);
+      setPins([]);
+    }
+  }
+
+  async function pickFromGallery() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
+    if (!result.canceled) {
+      setPhoto(result.assets[0].uri);
       setPins([]);
     }
   }
@@ -192,6 +204,9 @@ export default function App() {
       <TouchableOpacity style={styles.galleryButton} onPress={() => setShowGallery(true)}>
         <Text style={styles.galleryButtonText}>Gallery</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.pickButton} onPress={pickFromGallery}>
+        <Text style={styles.galleryButtonText}>📷 Roll</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -301,4 +316,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   deletePhotoText: { color: '#fff', fontSize: 14 },
+
+  pickButton: {
+    position: 'absolute',
+    bottom: 50,
+    left: 30,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
+  },
 });
