@@ -41,6 +41,12 @@ export default function App() {
     }
   }
 
+  async function deletePhoto(id) {
+    const updated = savedPhotos.filter(p => p.id !== id);
+    await AsyncStorage.setItem('savedPhotos', JSON.stringify(updated));
+    setSavedPhotos(updated);
+  }
+
   async function takePhoto() {
     if (cameraRef.current) {
       const result = await cameraRef.current.takePictureAsync();
@@ -103,11 +109,16 @@ export default function App() {
           {savedPhotos.length === 0 && (
             <Text style={styles.emptyText}>No saved photos yet!</Text>
           )}
-          {savedPhotos.map(entry => (
-            <TouchableOpacity key={entry.id} onPress={() => openSavedPhoto(entry)}>
-              <Image source={{ uri: entry.uri }} style={styles.thumbnail} />
-              <Text style={styles.pinCount}>{entry.pins.length} pin(s)</Text>
-            </TouchableOpacity>
+           {savedPhotos.map(entry => (
+            <View key={entry.id} style={styles.galleryItem}>
+              <TouchableOpacity onPress={() => openSavedPhoto(entry)} style={styles.thumbnailContainer}>
+                <Image source={{ uri: entry.uri }} style={styles.thumbnail} />
+                <Text style={styles.pinCount}>{entry.pins.length} pin(s)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deletePhotoButton} onPress={() => deletePhoto(entry.id)}>
+                <Text style={styles.deletePhotoText}>🗑 Delete</Text>
+              </TouchableOpacity>
+            </View>
           ))}
         </ScrollView>
       </View>
@@ -281,4 +292,13 @@ const styles = StyleSheet.create({
   saveText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   deleteButton: { padding: 14, borderRadius: 10, alignItems: 'center' },
   deleteText: { color: 'red', fontSize: 16 },
+
+    galleryItem: { marginBottom: 16 },
+  thumbnailContainer: { width: '100%' },
+  deletePhotoButton: {
+    backgroundColor: '#ff3b30',
+    padding: 10,
+    alignItems: 'center',
+  },
+  deletePhotoText: { color: '#fff', fontSize: 14 },
 });
