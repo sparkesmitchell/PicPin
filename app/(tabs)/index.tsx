@@ -12,6 +12,8 @@ export default function App() {
   const [noteText, setNoteText] = useState('');
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [showGallery, setShowGallery] = useState(false);
+  const [showTitleModal, setShowTitleModal] = useState(false);
+  const [titleText, setTitleText] = useState('');
   const cameraRef = useRef(null);
 
   useEffect(() => {
@@ -28,15 +30,19 @@ export default function App() {
   }
 
   async function saveCurrentPhoto() {
+    setShowTitleModal(true);
+  }
+
+  async function confirmSave(title) {
     try {
-      const newEntry = { id: Date.now(), uri: photo, pins };
+      const newEntry = { id: Date.now(), uri: photo, pins, title: title || 'Untitled' };
       const updated = [newEntry, ...savedPhotos];
       const jsonString = JSON.stringify(updated);
       await AsyncStorage.setItem('savedPhotos', jsonString);
-      const verify = await AsyncStorage.getItem('savedPhotos');
-      console.log('Saved and verified:', verify ? 'OK' : 'FAILED');
       setSavedPhotos(JSON.parse(jsonString));
-      alert('Photo saved! Gallery has ' + updated.length + ' photo(s)');
+      setShowTitleModal(false);
+      setTitleText('');
+      alert('Photo saved!');
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -125,6 +131,7 @@ export default function App() {
             <View key={entry.id} style={styles.galleryItem}>
               <TouchableOpacity onPress={() => openSavedPhoto(entry)} style={styles.thumbnailContainer}>
                 <Image source={{ uri: entry.uri }} style={styles.thumbnail} />
+                <Text style={styles.galleryItemTitle}>{entry.title || 'Untitled'}</Text>
                 <Text style={styles.pinCount}>{entry.pins.length} pin(s)</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.deletePhotoButton} onPress={() => deletePhoto(entry.id)}>
@@ -187,6 +194,27 @@ export default function App() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
                 <Text style={styles.deleteText}>Delete Pin</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={showTitleModal} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>Name this photo</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Living room inspection"
+                value={titleText}
+                onChangeText={setTitleText}
+                autoFocus
+              />
+              <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText)}>
+                <Text style={styles.saveText}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
+                <Text style={styles.deleteText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -325,4 +353,6 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
   },
+
+  galleryItemTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', padding: 8 },
 });
