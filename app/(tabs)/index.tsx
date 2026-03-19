@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import ViewShot from 'react-native-view-shot';
 
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -17,6 +17,7 @@ export default function App() {
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const cameraRef = useRef(null);
+  const viewShotRef = useRef(null);
 
   useEffect(() => {
     loadSavedPhotos();
@@ -77,9 +78,8 @@ export default function App() {
 
   async function sharePhoto() {
     try {
-      const fileName = FileSystem.documentDirectory + 'pinnotes_share_' + Date.now() + '.jpg';
-      await FileSystem.copyAsync({ from: photo, to: fileName });
-      await Sharing.shareAsync(fileName);
+      const uri = await viewShotRef.current.capture();
+      await Sharing.shareAsync(uri);
     } catch (e) {
       alert('Error sharing: ' + e.message);
     }
@@ -159,23 +159,25 @@ export default function App() {
   if (photo) {
     return (
       <View style={styles.container}>
-        <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
-          <Image source={{ uri: photo }} style={styles.camera} />
-          {pins.map(pin => (
-            <TouchableOpacity
-              key={pin.id}
-              style={[styles.pin, { left: pin.x - 15, top: pin.y - 15 }]}
-              onPress={(e) => handlePinTap(e, pin)}
-            >
-              <Text style={styles.pinEmoji}>📍</Text>
-              {pin.note ? (
-                <View style={styles.notePreview}>
-                  <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-          ))}
-        </TouchableOpacity>
+        <ViewShot ref={viewShotRef} style={styles.imageContainer}>
+          <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
+            <Image source={{ uri: photo }} style={styles.camera} />
+            {pins.map(pin => (
+              <TouchableOpacity
+                key={pin.id}
+                style={[styles.pin, { left: pin.x - 15, top: pin.y - 15 }]}
+                onPress={(e) => handlePinTap(e, pin)}
+              >
+                <Text style={styles.pinEmoji}>📍</Text>
+                {pin.note ? (
+                  <View style={styles.notePreview}>
+                    <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </TouchableOpacity>
+        </ViewShot>
 
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.bottomButton} onPress={() => setPhoto(null)}>
