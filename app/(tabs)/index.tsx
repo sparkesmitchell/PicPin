@@ -201,6 +201,14 @@ export default function App() {
         <ViewShot ref={viewShotRef} style={styles.imageContainer}>
           <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
             <Image source={{ uri: photo }} style={styles.camera} />
+            <View style={styles.watermark}>
+              <Text style={styles.watermarkText}>PicPins App</Text>
+            </View>
+            <View style={styles.timestamp}>
+              <Text style={styles.timestampText}>
+                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
             {pins.map(pin => (
               <TouchableOpacity
                 key={pin.id}
@@ -292,7 +300,7 @@ export default function App() {
       <StatusBar barStyle="light-content" />
       <CameraView style={styles.camera} facing="back" ref={cameraRef} />
       <View style={styles.cameraTopBar}>
-        <Text style={styles.appName}>PinNotes</Text>
+        <Text style={styles.appName}>PicPins</Text>
       </View>
       <View style={styles.cameraBottomBar}>
         <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
@@ -428,4 +436,20 @@ const styles = StyleSheet.create({
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   deleteButton: { padding: 14, borderRadius: 12, alignItems: 'center' },
   deleteText: { color: COLORS.danger, fontSize: 16 },
+
+  timestamp: {
+    position: 'absolute', bottom: 12, right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 6,
+  },
+  timestampText: { color: '#fff', fontSize: 11, fontFamily: 'monospace' },
+
+  watermark: {
+    position: 'absolute', top: 12, right: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 6,
+  },
+  watermarkText: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
 });
