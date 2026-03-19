@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -70,6 +72,16 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
+    }
+  }
+
+  async function sharePhoto() {
+    try {
+      const fileName = FileSystem.documentDirectory + 'pinnotes_share_' + Date.now() + '.jpg';
+      await FileSystem.copyAsync({ from: photo, to: fileName });
+      await Sharing.shareAsync(fileName);
+    } catch (e) {
+      alert('Error sharing: ' + e.message);
     }
   }
 
@@ -171,6 +183,9 @@ export default function App() {
           </TouchableOpacity>
           <TouchableOpacity style={[styles.bottomButton, styles.savePhotoButton]} onPress={saveCurrentPhoto}>
             <Text style={styles.bottomButtonText}>Save Photo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.bottomButton} onPress={sharePhoto}>
+            <Text style={styles.bottomButtonText}>Share</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.bottomButton} onPress={() => setShowGallery(true)}>
             <Text style={styles.bottomButtonText}>Gallery</Text>
