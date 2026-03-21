@@ -14,7 +14,10 @@
     "production": {
       "autoIncrement": true,
       "ios": {
-        "image": "macos-ventura-13.6-xcode-15.2"
+        "image": "macos-sequoia-15.2-xcode-16.2"
+      },
+      "cache": {
+        "disabled": true
       }
     }
   },
