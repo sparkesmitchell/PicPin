@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -74,11 +75,22 @@ export default function App() {
 
   async function takePhoto() {
     if (cameraRef.current) {
-      const result = await cameraRef.current.takePictureAsync();
-      setPhoto(result.uri);
+      const result = await cameraRef.current.takePictureAsync({
+        exif: true,
+        skipProcessing: false,
+      });
+      
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.uri,
+        [{ rotate: 90 }],
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      
+      setPhoto(manipulated.uri);
       setPins([]);
     }
   }
+  
 
   async function pickFromGallery() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -298,7 +310,12 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <CameraView style={styles.camera} facing="back" ref={cameraRef} />
+      <CameraView 
+  style={styles.camera} 
+  facing="back" 
+  ref={cameraRef}
+  videoStabilizationMode="auto"
+/>
       <View style={styles.cameraTopBar}>
         <Text style={styles.appName}>PicPins</Text>
       </View>
