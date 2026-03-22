@@ -73,15 +73,22 @@ export default function App() {
   }
 
   async function takePhoto() {
-  if (cameraRef.current) {
-    const result = await cameraRef.current.takePictureAsync({
-      exif: true,
-      skipProcessing: false,
-    });
-    setPhoto(result.uri);
-    setPins([]);
+    if (cameraRef.current) {
+      const result = await cameraRef.current.takePictureAsync({
+        exif: true,
+        skipProcessing: false,
+      });
+      
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.uri,
+        [{ rotate: 0 }],
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      
+      setPhoto(manipulated.uri);
+      setPins([]);
+    }
   }
-}
   
 
   async function pickFromGallery() {
