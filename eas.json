@@ -14,7 +14,7 @@
     "production": {
       "autoIncrement": true,
       "ios": {
-        "image": "macos-sequoia-15.5-xcode-16.4"
+        "image": "sdk-55"
       },
       "cache": {
         "disabled": true
