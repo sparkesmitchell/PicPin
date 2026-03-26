@@ -4,7 +4,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
@@ -20,6 +20,51 @@ const COLORS = {
   border: '#38383a',
 };
 
+// Draggable pin as its own component so PanResponder is stable per pin instance
+function DraggablePin({ pin, onTap, onDragEnd, isDragging }) {
+  const pressStartTime = useRef(0);
+  const didDrag = useRef(false);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5 || Math.abs(gs.dy) > 5,
+    onPanResponderGrant: () => {
+      pressStartTime.current = Date.now();
+      didDrag.current = false;
+    },
+    onPanResponderMove: (_, gs) => {
+      didDrag.current = true;
+      onDragEnd(pin.id, pin.x + gs.dx, pin.y + gs.dy, true);
+    },
+    onPanResponderRelease: (_, gs) => {
+      const elapsed = Date.now() - pressStartTime.current;
+      if (!didDrag.current && elapsed < 300) {
+        onTap(pin);
+      } else {
+        onDragEnd(pin.id, pin.x + gs.dx, pin.y + gs.dy, false);
+      }
+    },
+  }), [pin.id, pin.x, pin.y]);
+
+  return (
+    <View
+      style={[
+        styles.pin,
+        { left: pin.x - 15, top: pin.y - 15 },
+        isDragging && styles.pinDragging,
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <View style={styles.pinDot} />
+      {pin.note ? (
+        <View style={styles.notePreview}>
+          <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState(null);
@@ -32,6 +77,7 @@ export default function App() {
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
+  const [imageLayout, setImageLayout] = useState(null);
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
 
@@ -81,17 +127,12 @@ export default function App() {
         skipProcessing: false,
       });
 
-      // Map EXIF orientation tag to the degrees we need to rotate to correct it
+      // Read EXIF orientation and rotate to correct it
       const exifOrientation = result.exif?.Orientation ?? 1;
-      const rotationMap: Record<number, number> = {
-        1: 0,    // Normal
-        3: 180,  // Upside down
-        6: 90,   // Landscape, rotated 90 CW (most common on iOS)
-        8: -90,  // Landscape, rotated 90 CCW
-      };
+      const rotationMap = { 1: 0, 3: 180, 6: 90, 8: -90 };
       const rotation = rotationMap[exifOrientation] ?? 0;
-
       const actions = rotation !== 0 ? [{ rotate: rotation }] : [];
+
       const manipulated = await ImageManipulator.manipulateAsync(
         result.uri,
         actions,
@@ -100,9 +141,9 @@ export default function App() {
 
       setPhoto(manipulated.uri);
       setPins([]);
+      setImageLayout(null);
     }
   }
-  
 
   async function pickFromGallery() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -112,6 +153,7 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
+      setImageLayout(null);
     }
   }
 
@@ -133,16 +175,23 @@ export default function App() {
 
   function handleImageTap(event) {
     const { locationX, locationY } = event.nativeEvent;
-    const newPin = { id: Date.now(), x: locationX, y: locationY, note: '' };
+    // Offset tap coords by image position so pins are relative to the image overlay
+    const x = locationX - (imageLayout?.x ?? 0);
+    const y = locationY - (imageLayout?.y ?? 0);
+    const newPin = { id: Date.now(), x, y, note: '' };
     setPins(prev => [...prev, newPin]);
     setSelectedPin(newPin);
     setNoteText('');
   }
 
-  function handlePinTap(event, pin) {
-    event.stopPropagation();
+  function handlePinTap(pin) {
     setSelectedPin(pin);
     setNoteText(pin.note);
+  }
+
+  function handlePinDrag(id, newX, newY, isDragging) {
+    setDraggingPinId(isDragging ? id : null);
+    setPins(prev => prev.map(p => p.id === id ? { ...p, x: newX, y: newY } : p));
   }
 
   function saveNote() {
@@ -162,12 +211,12 @@ export default function App() {
     setShowGallery(false);
   }
 
-  if (!permission) return <View />;
+  if (!permission) return <View style={styles.fullScreen} />;
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.message}>Camera access is needed to use PinNotes</Text>
+      <View style={styles.permissionScreen}>
+        <Text style={styles.message}>Camera access is needed to use PicPins</Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Grant Permission</Text>
         </TouchableOpacity>
@@ -177,7 +226,7 @@ export default function App() {
 
   if (showGallery) {
     return (
-      <View style={styles.container}>
+      <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
@@ -220,79 +269,41 @@ export default function App() {
 
   if (photo) {
     return (
-      <View style={styles.container}>
+      <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
         <ViewShot ref={viewShotRef} style={styles.imageContainer}>
           <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
-            <Image source={{ uri: photo }} style={styles.camera} />
-            <View style={styles.watermark}>
-              <Text style={styles.watermarkText}>PicPins App</Text>
-            </View>
-            <View style={styles.timestamp}>
-              <Text style={styles.timestampText}>
-                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            </View>
-            {pins.map(pin => {
-              let pressStartTime = 0;
-              let didDrag = false;
-
-              const panResponder = PanResponder.create({
-                onStartShouldSetPanResponder: () => true,
-                onMoveShouldSetPanResponder: (_, gs) =>
-                  Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4,
-                onPanResponderGrant: () => {
-                  pressStartTime = Date.now();
-                  didDrag = false;
-                  setDraggingPinId(pin.id);
-                },
-                onPanResponderMove: (_, gs) => {
-                  didDrag = true;
-                  setPins(prev =>
-                    prev.map(p =>
-                      p.id === pin.id
-                        ? { ...p, x: pin.x + gs.dx, y: pin.y + gs.dy }
-                        : p
-                    )
-                  );
-                },
-                onPanResponderRelease: (_, gs) => {
-                  setDraggingPinId(null);
-                  const elapsed = Date.now() - pressStartTime;
-                  if (!didDrag && elapsed < 300) {
-                    setSelectedPin(pin);
-                    setNoteText(pin.note);
-                  } else if (didDrag) {
-                    setPins(prev =>
-                      prev.map(p =>
-                        p.id === pin.id
-                          ? { ...p, x: pin.x + gs.dx, y: pin.y + gs.dy }
-                          : p
-                      )
-                    );
-                  }
-                },
-              });
-
-              return (
-                <View
-                  key={pin.id}
-                  style={[
-                    styles.pin,
-                    { left: pin.x - 15, top: pin.y - 15 },
-                    draggingPinId === pin.id && styles.pinDragging,
-                  ]}
-                  {...panResponder.panHandlers}
-                >
-                  <View style={styles.pinDot} />
-                  {pin.note ? (
-                    <View style={styles.notePreview}>
-                      <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
-                    </View>
-                  ) : null}
+            <Image
+              source={{ uri: photo }}
+              style={styles.photoImage}
+              onLayout={e => setImageLayout(e.nativeEvent.layout)}
+            />
+            {imageLayout && (
+              <View style={[styles.imageOverlay, {
+                left: imageLayout.x,
+                top: imageLayout.y,
+                width: imageLayout.width,
+                height: imageLayout.height,
+              }]}>
+                <View style={styles.watermark}>
+                  <Text style={styles.watermarkText}>PicPins App</Text>
                 </View>
-              );
-            })}
+                <View style={styles.timestamp}>
+                  <Text style={styles.timestampText}>
+                    {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                {pins.map(pin => (
+                  <DraggablePin
+                    key={pin.id}
+                    pin={pin}
+                    onTap={handlePinTap}
+                    onDragEnd={handlePinDrag}
+                    isDragging={draggingPinId === pin.id}
+                  />
+                ))}
+              </View>
+            )}
           </TouchableOpacity>
         </ViewShot>
 
@@ -365,15 +376,16 @@ export default function App() {
     );
   }
 
+  // Camera screen
   return (
-    <View style={styles.container}>
+    <View style={styles.fullScreen}>
       <StatusBar barStyle="light-content" />
-      <CameraView 
-  style={styles.camera} 
-  facing="back" 
-  ref={cameraRef}
-  videoStabilizationMode="auto"
-/>
+      <CameraView
+        style={styles.fullScreen}
+        facing="back"
+        ref={cameraRef}
+        videoStabilizationMode="auto"
+      />
       <View style={styles.cameraTopBar}>
         <Text style={styles.appName}>PicPins</Text>
       </View>
@@ -395,12 +407,17 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
+  // Base layouts
+  fullScreen: { flex: 1, backgroundColor: COLORS.bg },
+  permissionScreen: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
+  imageContainer: { flex: 1 },
+  photoImage: { flex: 1, width: '100%', height: '100%', resizeMode: 'contain' },
+  imageOverlay: { position: 'absolute' },
+
+  // Permission screen
   message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
   permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
   permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  camera: { flex: 1 },
-  imageContainer: { flex: 1 },
 
   // Camera screen
   cameraTopBar: {
@@ -427,7 +444,7 @@ const styles = StyleSheet.create({
   sideBtnIcon: { fontSize: 26 },
   sideBtnLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 4 },
 
-  // Photo view
+  // Photo view bottom bar
   bottomBar: {
     flexDirection: 'row', justifyContent: 'space-around',
     paddingVertical: 16, paddingBottom: 36,
@@ -442,7 +459,6 @@ const styles = StyleSheet.create({
   // Pins
   pin: { position: 'absolute', alignItems: 'center' },
   pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
-  pinEmoji: { display: 'none' },
   pinDot: {
     width: 22, height: 22, borderRadius: 11,
     backgroundColor: '#ff3b30',
@@ -513,6 +529,7 @@ const styles = StyleSheet.create({
   deleteButton: { padding: 14, borderRadius: 12, alignItems: 'center' },
   deleteText: { color: COLORS.danger, fontSize: 16 },
 
+  // Watermark & timestamp
   timestamp: {
     position: 'absolute', bottom: 12, right: 12,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -520,7 +537,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   timestampText: { color: '#fff', fontSize: 11, fontFamily: 'monospace' },
-
   watermark: {
     position: 'absolute', top: 12, right: 12,
     backgroundColor: 'rgba(0,0,0,0.4)',
