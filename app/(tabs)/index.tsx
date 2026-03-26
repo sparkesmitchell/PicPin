@@ -80,24 +80,22 @@ export default function App() {
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [containerLayout, setContainerLayout] = useState(null);
   const [imageSize, setImageSize] = useState(null);
+  const [photoOrientation, setPhotoOrientation] = useState(null);
+  const photoOrientationRef = useRef(null);
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
 
-  useEffect(() => {
-    if (showGallery) {
-      // Lock gallery to portrait
+  function applyOrientationLock(options: { gallery?: boolean; orientation?: any; clear?: boolean }) {
+    if (options.gallery) {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    } else {
-      // Camera and photo review screens rotate freely
+    } else if (options.clear) {
       ScreenOrientation.unlockAsync();
+    } else if (options.orientation) {
+      ScreenOrientation.lockAsync(options.orientation);
     }
-    return () => {
-      // Lock back to portrait when component unmounts
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    };
-  }, [showGallery]);
+  }
 
   async function loadSavedPhotos() {
     try {
@@ -138,6 +136,15 @@ export default function App() {
 
   async function takePhoto() {
     if (cameraRef.current) {
+      // Capture current orientation before taking the photo
+      const currentOrientation = await ScreenOrientation.getOrientationAsync();
+      const orientationLock =
+        currentOrientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT
+          ? ScreenOrientation.OrientationLock.LANDSCAPE_LEFT
+          : currentOrientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+          ? ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT
+          : ScreenOrientation.OrientationLock.PORTRAIT_UP;
+
       const result = await cameraRef.current.takePictureAsync({
         exif: true,
         skipProcessing: false,
@@ -156,6 +163,9 @@ export default function App() {
       );
 
       setPhoto(manipulated.uri);
+      setPhotoOrientation(orientationLock);
+      photoOrientationRef.current = orientationLock;
+      applyOrientationLock({ orientation: orientationLock });
       setPins([]);
       setContainerLayout(null);
       setImageSize(null);
@@ -170,6 +180,9 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
+      setPhotoOrientation(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      photoOrientationRef.current = ScreenOrientation.OrientationLock.PORTRAIT_UP;
+      applyOrientationLock({ orientation: ScreenOrientation.OrientationLock.PORTRAIT_UP });
       setContainerLayout(null);
       setImageSize(null);
     }
@@ -219,13 +232,17 @@ export default function App() {
     const y = locationY - (overlay?.y ?? 0);
     const newPin = { id: Date.now(), x, y, note: '' };
     setPins(prev => [...prev, newPin]);
-    setSelectedPin(newPin);
-    setNoteText('');
+    ScreenOrientation.unlockAsync().then(() => {
+      setSelectedPin(newPin);
+      setNoteText('');
+    });
   }
 
   function handlePinTap(pin) {
-    setSelectedPin(pin);
-    setNoteText(pin.note);
+    ScreenOrientation.unlockAsync().then(() => {
+      setSelectedPin(pin);
+      setNoteText(pin.note);
+    });
   }
 
   function handlePinDrag(id, newX, newY, isDragging) {
@@ -236,11 +253,17 @@ export default function App() {
   function saveNote() {
     setPins(prev => prev.map(p => p.id === selectedPin.id ? { ...p, note: noteText } : p));
     setSelectedPin(null);
+    if (photoOrientationRef.current) {
+      ScreenOrientation.lockAsync(photoOrientationRef.current);
+    }
   }
 
   function deletePin() {
     setPins(prev => prev.filter(p => p.id !== selectedPin.id));
     setSelectedPin(null);
+    if (photoOrientationRef.current) {
+      ScreenOrientation.lockAsync(photoOrientationRef.current);
+    }
   }
 
   function openSavedPhoto(entry) {
@@ -268,7 +291,7 @@ export default function App() {
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
+          <TouchableOpacity onPress={() => { setShowGallery(false); applyOrientationLock({ clear: true }); }} style={styles.headerBack}>
             <Text style={styles.headerBackText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>My Photos</Text>
@@ -310,7 +333,7 @@ export default function App() {
     return (
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
-        <ViewShot ref={viewShotRef} style={styles.imageContainer}>
+        <View style={styles.imageContainer}>
           <TouchableOpacity
             activeOpacity={1}
             onPress={handleImageTap}
@@ -329,37 +352,46 @@ export default function App() {
               const overlay = getImageOverlay();
               if (!overlay) return null;
               return (
-                <View style={[styles.imageOverlay, {
-                  left: overlay.x,
-                  top: overlay.y,
-                  width: overlay.width,
-                  height: overlay.height,
-                }]}>
-                  <View style={styles.watermark}>
-                    <Text style={styles.watermarkText}>PicPins App</Text>
+                <ViewShot
+                  ref={viewShotRef}
+                  style={[styles.imageOverlay, {
+                    left: overlay.x,
+                    top: overlay.y,
+                    width: overlay.width,
+                    height: overlay.height,
+                  }]}
+                >
+                  <Image
+                    source={{ uri: photo }}
+                    style={{ width: overlay.width, height: overlay.height }}
+                  />
+                  <View style={[styles.imageOverlay, { left: 0, top: 0, width: overlay.width, height: overlay.height }]}>
+                    <View style={styles.watermark}>
+                      <Text style={styles.watermarkText}>PicPins App</Text>
+                    </View>
+                    <View style={styles.timestamp}>
+                      <Text style={styles.timestampText}>
+                        {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    {pins.map(pin => (
+                      <DraggablePin
+                        key={pin.id}
+                        pin={pin}
+                        onTap={handlePinTap}
+                        onDragEnd={handlePinDrag}
+                        isDragging={draggingPinId === pin.id}
+                      />
+                    ))}
                   </View>
-                  <View style={styles.timestamp}>
-                    <Text style={styles.timestampText}>
-                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                  {pins.map(pin => (
-                    <DraggablePin
-                      key={pin.id}
-                      pin={pin}
-                      onTap={handlePinTap}
-                      onDragEnd={handlePinDrag}
-                      isDragging={draggingPinId === pin.id}
-                    />
-                  ))}
-                </View>
+                </ViewShot>
               );
             })()}
           </TouchableOpacity>
-        </ViewShot>
+        </View>
 
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setPhotoOrientation(null); photoOrientationRef.current = null; setEditingPhotoId(null); applyOrientationLock({ clear: true }); }}>
             <Text style={styles.iconBtnIcon}>✕</Text>
             <Text style={styles.iconBtnLabel}>Retake</Text>
           </TouchableOpacity>
@@ -371,13 +403,13 @@ export default function App() {
             <Text style={styles.iconBtnIcon}>💾</Text>
             <Text style={styles.iconBtnLabel}>Save</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => { applyOrientationLock({ gallery: true }); setShowGallery(true); }}>
             <Text style={styles.iconBtnIcon}>▦</Text>
             <Text style={styles.iconBtnLabel}>Gallery</Text>
           </TouchableOpacity>
         </View>
 
-        <Modal visible={selectedPin !== null} transparent animationType="slide">
+        <Modal visible={selectedPin !== null} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
@@ -389,7 +421,6 @@ export default function App() {
                 value={noteText}
                 onChangeText={setNoteText}
                 multiline
-                autoFocus
               />
               <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
                 <Text style={styles.saveText}>Save Note</Text>
@@ -401,7 +432,7 @@ export default function App() {
           </View>
         </Modal>
 
-        <Modal visible={showTitleModal} transparent animationType="slide">
+        <Modal visible={showTitleModal} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
@@ -412,7 +443,6 @@ export default function App() {
                 placeholderTextColor={COLORS.textSecondary}
                 value={titleText}
                 onChangeText={setTitleText}
-                autoFocus
               />
               <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
                 <Text style={styles.saveText}>Save</Text>
@@ -448,7 +478,7 @@ export default function App() {
         <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
           <View style={styles.captureInner} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
+        <TouchableOpacity style={styles.sideBtn} onPress={() => { applyOrientationLock({ gallery: true }); setShowGallery(true); }}>
           <Text style={styles.sideBtnIcon}>▦</Text>
           <Text style={styles.sideBtnLabel}>Gallery</Text>
         </TouchableOpacity>
