@@ -4,7 +4,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
@@ -77,11 +78,26 @@ export default function App() {
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
-  const [imageLayout, setImageLayout] = useState(null);
+  const [containerLayout, setContainerLayout] = useState(null);
+  const [imageSize, setImageSize] = useState(null);
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
+
+  useEffect(() => {
+    if (showGallery) {
+      // Lock gallery to portrait
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    } else {
+      // Camera and photo review screens rotate freely
+      ScreenOrientation.unlockAsync();
+    }
+    return () => {
+      // Lock back to portrait when component unmounts
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, [showGallery]);
 
   async function loadSavedPhotos() {
     try {
@@ -141,7 +157,8 @@ export default function App() {
 
       setPhoto(manipulated.uri);
       setPins([]);
-      setImageLayout(null);
+      setContainerLayout(null);
+      setImageSize(null);
     }
   }
 
@@ -153,7 +170,8 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
-      setImageLayout(null);
+      setContainerLayout(null);
+      setImageSize(null);
     }
   }
 
@@ -173,11 +191,32 @@ export default function App() {
     } catch (e) { alert('Error: ' + e.message); }
   }
 
+  function getImageOverlay() {
+    if (!containerLayout || !imageSize) return null;
+    const containerRatio = containerLayout.width / containerLayout.height;
+    const imageRatio = imageSize.width / imageSize.height;
+    let width, height, x, y;
+    if (imageRatio > containerRatio) {
+      // Landscape image in portrait container — letterboxed (black bars top/bottom)
+      width = containerLayout.width;
+      height = containerLayout.width / imageRatio;
+      x = 0;
+      y = (containerLayout.height - height) / 2;
+    } else {
+      // Portrait image in portrait container — pillarboxed (black bars left/right)
+      height = containerLayout.height;
+      width = containerLayout.height * imageRatio;
+      x = (containerLayout.width - width) / 2;
+      y = 0;
+    }
+    return { x, y, width, height };
+  }
+
   function handleImageTap(event) {
     const { locationX, locationY } = event.nativeEvent;
-    // Offset tap coords by image position so pins are relative to the image overlay
-    const x = locationX - (imageLayout?.x ?? 0);
-    const y = locationY - (imageLayout?.y ?? 0);
+    const overlay = getImageOverlay();
+    const x = locationX - (overlay?.x ?? 0);
+    const y = locationY - (overlay?.y ?? 0);
     const newPin = { id: Date.now(), x, y, note: '' };
     setPins(prev => [...prev, newPin]);
     setSelectedPin(newPin);
@@ -272,38 +311,50 @@ export default function App() {
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
         <ViewShot ref={viewShotRef} style={styles.imageContainer}>
-          <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={handleImageTap}
+            style={styles.imageContainer}
+            onLayout={e => setContainerLayout(e.nativeEvent.layout)}
+          >
             <Image
               source={{ uri: photo }}
               style={styles.photoImage}
-              onLayout={e => setImageLayout(e.nativeEvent.layout)}
+              onLoad={e => setImageSize({
+                width: e.nativeEvent.source.width,
+                height: e.nativeEvent.source.height,
+              })}
             />
-            {imageLayout && (
-              <View style={[styles.imageOverlay, {
-                left: imageLayout.x,
-                top: imageLayout.y,
-                width: imageLayout.width,
-                height: imageLayout.height,
-              }]}>
-                <View style={styles.watermark}>
-                  <Text style={styles.watermarkText}>PicPins App</Text>
+            {(() => {
+              const overlay = getImageOverlay();
+              if (!overlay) return null;
+              return (
+                <View style={[styles.imageOverlay, {
+                  left: overlay.x,
+                  top: overlay.y,
+                  width: overlay.width,
+                  height: overlay.height,
+                }]}>
+                  <View style={styles.watermark}>
+                    <Text style={styles.watermarkText}>PicPins App</Text>
+                  </View>
+                  <View style={styles.timestamp}>
+                    <Text style={styles.timestampText}>
+                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  {pins.map(pin => (
+                    <DraggablePin
+                      key={pin.id}
+                      pin={pin}
+                      onTap={handlePinTap}
+                      onDragEnd={handlePinDrag}
+                      isDragging={draggingPinId === pin.id}
+                    />
+                  ))}
                 </View>
-                <View style={styles.timestamp}>
-                  <Text style={styles.timestampText}>
-                    {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                </View>
-                {pins.map(pin => (
-                  <DraggablePin
-                    key={pin.id}
-                    pin={pin}
-                    onTap={handlePinTap}
-                    onDragEnd={handlePinDrag}
-                    isDragging={draggingPinId === pin.id}
-                  />
-                ))}
-              </View>
-            )}
+              );
+            })()}
           </TouchableOpacity>
         </ViewShot>
 

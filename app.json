@@ -2,8 +2,8 @@
   "expo": {
     "name": "PicPins",
     "slug": "picpins",
-    "version": "1.0.1",
-    "orientation": "portrait",
+    "version": "1.0.2",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "pinnotes",
     "userInterfaceStyle": "automatic",
@@ -35,6 +35,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-screen-orientation",
       [
         "expo-splash-screen",
         {
