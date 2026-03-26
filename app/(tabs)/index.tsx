@@ -192,7 +192,7 @@ export default function App() {
                 </View>
               </TouchableOpacity>
               <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.uri)}>
+                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri)}>
                   <Text style={styles.cardActionText}>💾 Save</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
