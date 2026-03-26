@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { Image, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 const COLORS = {
@@ -26,6 +26,7 @@ export default function App() {
   const [pins, setPins] = useState([]);
   const [selectedPin, setSelectedPin] = useState(null);
   const [noteText, setNoteText] = useState('');
+  const [draggingPinId, setDraggingPinId] = useState(null);
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [showGallery, setShowGallery] = useState(false);
   const [showTitleModal, setShowTitleModal] = useState(false);
@@ -74,22 +75,33 @@ export default function App() {
   }
 
   async function takePhoto() {
-  if (cameraRef.current) {
-    const result = await cameraRef.current.takePictureAsync({
-      exif: true,
-      skipProcessing: false,
-    });
-    
-    const manipulated = await ImageManipulator.manipulateAsync(
-      result.uri,
-      [{ rotate: 0 }],
-      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    
-    setPhoto(manipulated.uri);
-    setPins([]);
+    if (cameraRef.current) {
+      const result = await cameraRef.current.takePictureAsync({
+        exif: true,
+        skipProcessing: false,
+      });
+
+      // Map EXIF orientation tag to the degrees we need to rotate to correct it
+      const exifOrientation = result.exif?.Orientation ?? 1;
+      const rotationMap: Record<number, number> = {
+        1: 0,    // Normal
+        3: 180,  // Upside down
+        6: 90,   // Landscape, rotated 90 CW (most common on iOS)
+        8: -90,  // Landscape, rotated 90 CCW
+      };
+      const rotation = rotationMap[exifOrientation] ?? 0;
+
+      const actions = rotation !== 0 ? [{ rotate: rotation }] : [];
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.uri,
+        actions,
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      setPhoto(manipulated.uri);
+      setPins([]);
+    }
   }
-}
   
 
   async function pickFromGallery() {
@@ -221,20 +233,66 @@ export default function App() {
                 {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
               </Text>
             </View>
-            {pins.map(pin => (
-              <TouchableOpacity
-                key={pin.id}
-                style={[styles.pin, { left: pin.x - 15, top: pin.y - 15 }]}
-                onPress={(e) => handlePinTap(e, pin)}
-              >
-                <View style={styles.pinDot} />
-                {pin.note ? (
-                  <View style={styles.notePreview}>
-                    <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            ))}
+            {pins.map(pin => {
+              let pressStartTime = 0;
+              let didDrag = false;
+
+              const panResponder = PanResponder.create({
+                onStartShouldSetPanResponder: () => true,
+                onMoveShouldSetPanResponder: (_, gs) =>
+                  Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4,
+                onPanResponderGrant: () => {
+                  pressStartTime = Date.now();
+                  didDrag = false;
+                  setDraggingPinId(pin.id);
+                },
+                onPanResponderMove: (_, gs) => {
+                  didDrag = true;
+                  setPins(prev =>
+                    prev.map(p =>
+                      p.id === pin.id
+                        ? { ...p, x: pin.x + gs.dx, y: pin.y + gs.dy }
+                        : p
+                    )
+                  );
+                },
+                onPanResponderRelease: (_, gs) => {
+                  setDraggingPinId(null);
+                  const elapsed = Date.now() - pressStartTime;
+                  if (!didDrag && elapsed < 300) {
+                    setSelectedPin(pin);
+                    setNoteText(pin.note);
+                  } else if (didDrag) {
+                    setPins(prev =>
+                      prev.map(p =>
+                        p.id === pin.id
+                          ? { ...p, x: pin.x + gs.dx, y: pin.y + gs.dy }
+                          : p
+                      )
+                    );
+                  }
+                },
+              });
+
+              return (
+                <View
+                  key={pin.id}
+                  style={[
+                    styles.pin,
+                    { left: pin.x - 15, top: pin.y - 15 },
+                    draggingPinId === pin.id && styles.pinDragging,
+                  ]}
+                  {...panResponder.panHandlers}
+                >
+                  <View style={styles.pinDot} />
+                  {pin.note ? (
+                    <View style={styles.notePreview}>
+                      <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
           </TouchableOpacity>
         </ViewShot>
 
@@ -337,7 +395,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
+  container: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
   permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
   permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
@@ -383,6 +441,7 @@ const styles = StyleSheet.create({
 
   // Pins
   pin: { position: 'absolute', alignItems: 'center' },
+  pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
   pinEmoji: { display: 'none' },
   pinDot: {
     width: 22, height: 22, borderRadius: 11,
