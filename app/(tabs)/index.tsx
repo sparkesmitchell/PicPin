@@ -77,12 +77,9 @@ export default function App() {
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
-  const [containerLayout, setContainerLayout] = useState(null);
-  const [imageSize, setImageSize] = useState(null);
-  const [captureDate, setCaptureDate] = useState(() => new Date());
+  const [imageLayout, setImageLayout] = useState(null);
   const cameraRef = useRef(null);
-  const hiddenCaptureRef = useRef(null);
-  const pendingFlatUriRef = useRef(null);
+  const viewShotRef = useRef(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
 
@@ -94,20 +91,12 @@ export default function App() {
   }
 
   async function saveCurrentPhoto() {
-    try {
-      if (!hiddenCaptureRef.current) { alert('Please wait for the photo to fully load before saving.'); return; }
-      const flatUri = await hiddenCaptureRef.current.capture();
-      pendingFlatUriRef.current = flatUri;
-      setShowTitleModal(true);
-    } catch (e) {
-      alert('Error capturing photo: ' + e.message);
-    }
+    setShowTitleModal(true);
   }
 
   async function confirmSave(title, currentEditingId) {
     try {
-      const flatUri = pendingFlatUriRef.current;
-      if (!flatUri) { alert('Error: no captured photo found.'); return; }
+      const flatUri = await viewShotRef.current.capture();
       let updated;
       if (currentEditingId) {
         updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
@@ -121,7 +110,6 @@ export default function App() {
       setShowTitleModal(false);
       setTitleText('');
       setEditingPhotoId(null);
-      pendingFlatUriRef.current = null;
       alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
     } catch (e) { alert('Error: ' + e.message); }
   }
@@ -152,10 +140,8 @@ export default function App() {
       );
 
       setPhoto(manipulated.uri);
-      setCaptureDate(new Date());
       setPins([]);
-      setContainerLayout(null);
-      setImageSize(null);
+      setImageLayout(null);
     }
   }
 
@@ -166,17 +152,14 @@ export default function App() {
     });
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
-      setCaptureDate(new Date());
       setPins([]);
-      setContainerLayout(null);
-      setImageSize(null);
+      setImageLayout(null);
     }
   }
 
   async function sharePhoto() {
     try {
-      if (!hiddenCaptureRef.current) { alert('Please wait for the photo to fully load.'); return; }
-      const uri = await hiddenCaptureRef.current.capture();
+      const uri = await viewShotRef.current.capture();
       await Sharing.shareAsync(uri);
     } catch (e) { alert('Error sharing: ' + e.message); }
   }
@@ -190,30 +173,11 @@ export default function App() {
     } catch (e) { alert('Error: ' + e.message); }
   }
 
-  function getImageOverlay() {
-    if (!containerLayout || !imageSize) return null;
-    const containerRatio = containerLayout.width / containerLayout.height;
-    const imageRatio = imageSize.width / imageSize.height;
-    let width, height, x, y;
-    if (imageRatio > containerRatio) {
-      width = containerLayout.width;
-      height = containerLayout.width / imageRatio;
-      x = 0;
-      y = (containerLayout.height - height) / 2;
-    } else {
-      height = containerLayout.height;
-      width = containerLayout.height * imageRatio;
-      x = (containerLayout.width - width) / 2;
-      y = 0;
-    }
-    return { x, y, width, height };
-  }
-
   function handleImageTap(event) {
     const { locationX, locationY } = event.nativeEvent;
-    const overlay = getImageOverlay();
-    const x = locationX - (overlay?.x ?? 0);
-    const y = locationY - (overlay?.y ?? 0);
+    // Offset tap coords by image position so pins are relative to the image overlay
+    const x = locationX - (imageLayout?.x ?? 0);
+    const y = locationY - (imageLayout?.y ?? 0);
     const newPin = { id: Date.now(), x, y, note: '' };
     setPins(prev => [...prev, newPin]);
     setSelectedPin(newPin);
@@ -304,41 +268,29 @@ export default function App() {
   }
 
   if (photo) {
-    const overlay = getImageOverlay();
-    const scaleX = imageSize && overlay ? imageSize.width / overlay.width : 1;
-    const scaleY = imageSize && overlay ? imageSize.height / overlay.height : 1;
-
     return (
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
-
-        {/* Visible photo view */}
-        <View style={styles.imageContainer}>
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={handleImageTap}
-            style={styles.imageContainer}
-            onLayout={e => setContainerLayout(e.nativeEvent.layout)}
-          >
+        <ViewShot ref={viewShotRef} style={styles.imageContainer}>
+          <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
             <Image
               source={{ uri: photo }}
               style={styles.photoImage}
-              onLoad={e => setImageSize({
-                width: e.nativeEvent.source.width,
-                height: e.nativeEvent.source.height,
-              })}
+              onLayout={e => setImageLayout(e.nativeEvent.layout)}
             />
-            {overlay && (
+            {imageLayout && (
               <View style={[styles.imageOverlay, {
-                left: overlay.x, top: overlay.y,
-                width: overlay.width, height: overlay.height,
+                left: imageLayout.x,
+                top: imageLayout.y,
+                width: imageLayout.width,
+                height: imageLayout.height,
               }]}>
                 <View style={styles.watermark}>
                   <Text style={styles.watermarkText}>PicPins App</Text>
                 </View>
                 <View style={styles.timestamp}>
                   <Text style={styles.timestampText}>
-                    {captureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {captureDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
                 {pins.map(pin => (
@@ -353,47 +305,7 @@ export default function App() {
               </View>
             )}
           </TouchableOpacity>
-        </View>
-
-        {/* Hidden off-screen ViewShot — always portrait, sized to actual image pixels, never affected by orientation */}
-        {imageSize && (
-          <ViewShot
-            ref={hiddenCaptureRef}
-            style={{
-              position: 'absolute',
-              left: -imageSize.width,
-              top: 0,
-              width: imageSize.width,
-              height: imageSize.height,
-              overflow: 'hidden',
-            }}
-          >
-            <Image source={{ uri: photo }} style={{ width: imageSize.width, height: imageSize.height }} />
-            <View style={[styles.imageOverlay, { left: 0, top: 0, width: imageSize.width, height: imageSize.height }]}>
-              <View style={styles.watermark}>
-                <Text style={styles.watermarkText}>PicPins App</Text>
-              </View>
-              <View style={styles.timestamp}>
-                <Text style={styles.timestampText}>
-                  {captureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {captureDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-              </View>
-              {pins.map(pin => (
-                <View
-                  key={pin.id}
-                  style={[styles.pin, { left: pin.x * scaleX - 15, top: pin.y * scaleY - 15 }]}
-                >
-                  <View style={styles.pinDot} />
-                  {pin.note ? (
-                    <View style={styles.notePreview}>
-                      <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          </ViewShot>
-        )}
+        </ViewShot>
 
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
@@ -495,16 +407,19 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  // Base layouts
   fullScreen: { flex: 1, backgroundColor: COLORS.bg },
   permissionScreen: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   imageContainer: { flex: 1 },
   photoImage: { flex: 1, width: '100%', height: '100%', resizeMode: 'contain' },
   imageOverlay: { position: 'absolute' },
 
+  // Permission screen
   message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
   permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
   permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
+  // Camera screen
   cameraTopBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24,
@@ -529,6 +444,7 @@ const styles = StyleSheet.create({
   sideBtnIcon: { fontSize: 26 },
   sideBtnLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 4 },
 
+  // Photo view bottom bar
   bottomBar: {
     flexDirection: 'row', justifyContent: 'space-around',
     paddingVertical: 16, paddingBottom: 36,
@@ -540,6 +456,7 @@ const styles = StyleSheet.create({
   iconBtnIcon: { fontSize: 22 },
   iconBtnLabel: { color: COLORS.text, fontSize: 11, marginTop: 4 },
 
+  // Pins
   pin: { position: 'absolute', alignItems: 'center' },
   pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
   pinDot: {
@@ -556,6 +473,7 @@ const styles = StyleSheet.create({
   },
   notePreviewText: { color: '#fff', fontSize: 10 },
 
+  // Gallery
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16,
@@ -583,6 +501,7 @@ const styles = StyleSheet.create({
   emptyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '600', marginBottom: 8 },
   emptySubtitle: { color: COLORS.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
 
+  // Modals
   modalOverlay: {
     flex: 1, justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -610,6 +529,7 @@ const styles = StyleSheet.create({
   deleteButton: { padding: 14, borderRadius: 12, alignItems: 'center' },
   deleteText: { color: COLORS.danger, fontSize: 16 },
 
+  // Watermark & timestamp
   timestamp: {
     position: 'absolute', bottom: 12, right: 12,
     backgroundColor: 'rgba(0,0,0,0.5)',
