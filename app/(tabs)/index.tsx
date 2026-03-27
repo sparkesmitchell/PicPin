@@ -4,8 +4,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import { useEffect, useRef, useState } from 'react';
-import { Image, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 const COLORS = {
@@ -20,6 +20,50 @@ const COLORS = {
   border: '#38383a',
 };
 
+function DraggablePin({ pin, onTap, onDragEnd, isDragging }) {
+  const pressStartTime = useRef(0);
+  const didDrag = useRef(false);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5 || Math.abs(gs.dy) > 5,
+    onPanResponderGrant: () => {
+      pressStartTime.current = Date.now();
+      didDrag.current = false;
+    },
+    onPanResponderMove: (_, gs) => {
+      didDrag.current = true;
+      onDragEnd(pin.id, pin.x + gs.dx, pin.y + gs.dy, true);
+    },
+    onPanResponderRelease: (_, gs) => {
+      const elapsed = Date.now() - pressStartTime.current;
+      if (!didDrag.current && elapsed < 300) {
+        onTap(pin);
+      } else {
+        onDragEnd(pin.id, pin.x + gs.dx, pin.y + gs.dy, false);
+      }
+    },
+  }), [pin.id, pin.x, pin.y]);
+
+  return (
+    <View
+      style={[
+        styles.pin,
+        { left: pin.x - 15, top: pin.y - 15 },
+        isDragging && styles.pinDragging,
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <View style={styles.pinDot} />
+      {pin.note ? (
+        <View style={styles.notePreview}>
+          <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState(null);
@@ -33,6 +77,7 @@ export default function App() {
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const cameraRef = useRef(null);
   const viewShotRef = useRef(null);
+  const [draggingPinId, setDraggingPinId] = useState(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
 
@@ -133,6 +178,11 @@ export default function App() {
     setNoteText(pin.note);
   }
 
+  function handlePinDrag(id, newX, newY, isDragging) {
+  setDraggingPinId(isDragging ? id : null);
+  setPins(prev => prev.map(p => p.id === id ? { ...p, x: newX, y: newY } : p));
+  }
+
   function saveNote() {
     setPins(prev => prev.map(p => p.id === selectedPin.id ? { ...p, note: noteText } : p));
     setSelectedPin(null);
@@ -222,18 +272,13 @@ export default function App() {
               </Text>
             </View>
             {pins.map(pin => (
-              <TouchableOpacity
+              <DraggablePin
                 key={pin.id}
-                style={[styles.pin, { left: pin.x - 15, top: pin.y - 15 }]}
-                onPress={(e) => handlePinTap(e, pin)}
-              >
-                <View style={styles.pinDot} />
-                {pin.note ? (
-                  <View style={styles.notePreview}>
-                    <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
+                pin={pin}
+                onTap={handlePinTap}
+                onDragEnd={handlePinDrag}
+                isDragging={draggingPinId === pin.id}
+              />
             ))}
           </TouchableOpacity>
         </ViewShot>
@@ -397,6 +442,8 @@ const styles = StyleSheet.create({
     maxWidth: 120, marginTop: 2,
   },
   notePreviewText: { color: '#fff', fontSize: 10 },
+
+  pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
 
   // Gallery
   header: {
