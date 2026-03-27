@@ -4,8 +4,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import * as ScreenOrientation from 'expo-screen-orientation';
-import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
@@ -80,22 +79,12 @@ export default function App() {
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [containerLayout, setContainerLayout] = useState(null);
   const [imageSize, setImageSize] = useState(null);
-  const [photoOrientation, setPhotoOrientation] = useState(null);
-  const photoOrientationRef = useRef(null);
+  const [captureDate, setCaptureDate] = useState(() => new Date());
   const cameraRef = useRef(null);
-  const viewShotRef = useRef(null);
+  const hiddenCaptureRef = useRef(null);
+  const pendingFlatUriRef = useRef(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
-
-  function applyOrientationLock(options: { gallery?: boolean; orientation?: any; clear?: boolean }) {
-    if (options.gallery) {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    } else if (options.clear) {
-      ScreenOrientation.unlockAsync();
-    } else if (options.orientation) {
-      ScreenOrientation.lockAsync(options.orientation);
-    }
-  }
 
   async function loadSavedPhotos() {
     try {
@@ -105,12 +94,20 @@ export default function App() {
   }
 
   async function saveCurrentPhoto() {
-    setShowTitleModal(true);
+    try {
+      if (!hiddenCaptureRef.current) { alert('Please wait for the photo to fully load before saving.'); return; }
+      const flatUri = await hiddenCaptureRef.current.capture();
+      pendingFlatUriRef.current = flatUri;
+      setShowTitleModal(true);
+    } catch (e) {
+      alert('Error capturing photo: ' + e.message);
+    }
   }
 
   async function confirmSave(title, currentEditingId) {
     try {
-      const flatUri = await viewShotRef.current.capture();
+      const flatUri = pendingFlatUriRef.current;
+      if (!flatUri) { alert('Error: no captured photo found.'); return; }
       let updated;
       if (currentEditingId) {
         updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
@@ -124,6 +121,7 @@ export default function App() {
       setShowTitleModal(false);
       setTitleText('');
       setEditingPhotoId(null);
+      pendingFlatUriRef.current = null;
       alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
     } catch (e) { alert('Error: ' + e.message); }
   }
@@ -136,15 +134,6 @@ export default function App() {
 
   async function takePhoto() {
     if (cameraRef.current) {
-      // Capture current orientation before taking the photo
-      const currentOrientation = await ScreenOrientation.getOrientationAsync();
-      const orientationLock =
-        currentOrientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT
-          ? ScreenOrientation.OrientationLock.LANDSCAPE_LEFT
-          : currentOrientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-          ? ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT
-          : ScreenOrientation.OrientationLock.PORTRAIT_UP;
-
       const result = await cameraRef.current.takePictureAsync({
         exif: true,
         skipProcessing: false,
@@ -163,9 +152,7 @@ export default function App() {
       );
 
       setPhoto(manipulated.uri);
-      setPhotoOrientation(orientationLock);
-      photoOrientationRef.current = orientationLock;
-      applyOrientationLock({ orientation: orientationLock });
+      setCaptureDate(new Date());
       setPins([]);
       setContainerLayout(null);
       setImageSize(null);
@@ -179,10 +166,8 @@ export default function App() {
     });
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
+      setCaptureDate(new Date());
       setPins([]);
-      setPhotoOrientation(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-      photoOrientationRef.current = ScreenOrientation.OrientationLock.PORTRAIT_UP;
-      applyOrientationLock({ orientation: ScreenOrientation.OrientationLock.PORTRAIT_UP });
       setContainerLayout(null);
       setImageSize(null);
     }
@@ -190,7 +175,8 @@ export default function App() {
 
   async function sharePhoto() {
     try {
-      const uri = await viewShotRef.current.capture();
+      if (!hiddenCaptureRef.current) { alert('Please wait for the photo to fully load.'); return; }
+      const uri = await hiddenCaptureRef.current.capture();
       await Sharing.shareAsync(uri);
     } catch (e) { alert('Error sharing: ' + e.message); }
   }
@@ -210,13 +196,11 @@ export default function App() {
     const imageRatio = imageSize.width / imageSize.height;
     let width, height, x, y;
     if (imageRatio > containerRatio) {
-      // Landscape image in portrait container — letterboxed (black bars top/bottom)
       width = containerLayout.width;
       height = containerLayout.width / imageRatio;
       x = 0;
       y = (containerLayout.height - height) / 2;
     } else {
-      // Portrait image in portrait container — pillarboxed (black bars left/right)
       height = containerLayout.height;
       width = containerLayout.height * imageRatio;
       x = (containerLayout.width - width) / 2;
@@ -232,17 +216,13 @@ export default function App() {
     const y = locationY - (overlay?.y ?? 0);
     const newPin = { id: Date.now(), x, y, note: '' };
     setPins(prev => [...prev, newPin]);
-    ScreenOrientation.unlockAsync().then(() => {
-      setSelectedPin(newPin);
-      setNoteText('');
-    });
+    setSelectedPin(newPin);
+    setNoteText('');
   }
 
   function handlePinTap(pin) {
-    ScreenOrientation.unlockAsync().then(() => {
-      setSelectedPin(pin);
-      setNoteText(pin.note);
-    });
+    setSelectedPin(pin);
+    setNoteText(pin.note);
   }
 
   function handlePinDrag(id, newX, newY, isDragging) {
@@ -253,17 +233,11 @@ export default function App() {
   function saveNote() {
     setPins(prev => prev.map(p => p.id === selectedPin.id ? { ...p, note: noteText } : p));
     setSelectedPin(null);
-    if (photoOrientationRef.current) {
-      ScreenOrientation.lockAsync(photoOrientationRef.current);
-    }
   }
 
   function deletePin() {
     setPins(prev => prev.filter(p => p.id !== selectedPin.id));
     setSelectedPin(null);
-    if (photoOrientationRef.current) {
-      ScreenOrientation.lockAsync(photoOrientationRef.current);
-    }
   }
 
   function openSavedPhoto(entry) {
@@ -291,7 +265,7 @@ export default function App() {
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => { setShowGallery(false); applyOrientationLock({ clear: true }); }} style={styles.headerBack}>
+          <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
             <Text style={styles.headerBackText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>My Photos</Text>
@@ -330,9 +304,15 @@ export default function App() {
   }
 
   if (photo) {
+    const overlay = getImageOverlay();
+    const scaleX = imageSize && overlay ? imageSize.width / overlay.width : 1;
+    const scaleY = imageSize && overlay ? imageSize.height / overlay.height : 1;
+
     return (
       <View style={styles.fullScreen}>
         <StatusBar barStyle="light-content" />
+
+        {/* Visible photo view */}
         <View style={styles.imageContainer}>
           <TouchableOpacity
             activeOpacity={1}
@@ -348,50 +328,75 @@ export default function App() {
                 height: e.nativeEvent.source.height,
               })}
             />
-            {(() => {
-              const overlay = getImageOverlay();
-              if (!overlay) return null;
-              return (
-                <ViewShot
-                  ref={viewShotRef}
-                  style={[styles.imageOverlay, {
-                    left: overlay.x,
-                    top: overlay.y,
-                    width: overlay.width,
-                    height: overlay.height,
-                  }]}
-                >
-                  <Image
-                    source={{ uri: photo }}
-                    style={{ width: overlay.width, height: overlay.height }}
+            {overlay && (
+              <View style={[styles.imageOverlay, {
+                left: overlay.x, top: overlay.y,
+                width: overlay.width, height: overlay.height,
+              }]}>
+                <View style={styles.watermark}>
+                  <Text style={styles.watermarkText}>PicPins App</Text>
+                </View>
+                <View style={styles.timestamp}>
+                  <Text style={styles.timestampText}>
+                    {captureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {captureDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                {pins.map(pin => (
+                  <DraggablePin
+                    key={pin.id}
+                    pin={pin}
+                    onTap={handlePinTap}
+                    onDragEnd={handlePinDrag}
+                    isDragging={draggingPinId === pin.id}
                   />
-                  <View style={[styles.imageOverlay, { left: 0, top: 0, width: overlay.width, height: overlay.height }]}>
-                    <View style={styles.watermark}>
-                      <Text style={styles.watermarkText}>PicPins App</Text>
-                    </View>
-                    <View style={styles.timestamp}>
-                      <Text style={styles.timestampText}>
-                        {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
-                    {pins.map(pin => (
-                      <DraggablePin
-                        key={pin.id}
-                        pin={pin}
-                        onTap={handlePinTap}
-                        onDragEnd={handlePinDrag}
-                        isDragging={draggingPinId === pin.id}
-                      />
-                    ))}
-                  </View>
-                </ViewShot>
-              );
-            })()}
+                ))}
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
+        {/* Hidden off-screen ViewShot — always portrait, sized to actual image pixels, never affected by orientation */}
+        {imageSize && (
+          <ViewShot
+            ref={hiddenCaptureRef}
+            style={{
+              position: 'absolute',
+              left: -imageSize.width,
+              top: 0,
+              width: imageSize.width,
+              height: imageSize.height,
+              overflow: 'hidden',
+            }}
+          >
+            <Image source={{ uri: photo }} style={{ width: imageSize.width, height: imageSize.height }} />
+            <View style={[styles.imageOverlay, { left: 0, top: 0, width: imageSize.width, height: imageSize.height }]}>
+              <View style={styles.watermark}>
+                <Text style={styles.watermarkText}>PicPins App</Text>
+              </View>
+              <View style={styles.timestamp}>
+                <Text style={styles.timestampText}>
+                  {captureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {captureDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+              {pins.map(pin => (
+                <View
+                  key={pin.id}
+                  style={[styles.pin, { left: pin.x * scaleX - 15, top: pin.y * scaleY - 15 }]}
+                >
+                  <View style={styles.pinDot} />
+                  {pin.note ? (
+                    <View style={styles.notePreview}>
+                      <Text style={styles.notePreviewText} numberOfLines={1}>{pin.note}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </ViewShot>
+        )}
+
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setPhotoOrientation(null); photoOrientationRef.current = null; setEditingPhotoId(null); applyOrientationLock({ clear: true }); }}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
             <Text style={styles.iconBtnIcon}>✕</Text>
             <Text style={styles.iconBtnLabel}>Retake</Text>
           </TouchableOpacity>
@@ -403,13 +408,13 @@ export default function App() {
             <Text style={styles.iconBtnIcon}>💾</Text>
             <Text style={styles.iconBtnLabel}>Save</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => { applyOrientationLock({ gallery: true }); setShowGallery(true); }}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
             <Text style={styles.iconBtnIcon}>▦</Text>
             <Text style={styles.iconBtnLabel}>Gallery</Text>
           </TouchableOpacity>
         </View>
 
-        <Modal visible={selectedPin !== null} transparent animationType="fade">
+        <Modal visible={selectedPin !== null} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
@@ -421,6 +426,7 @@ export default function App() {
                 value={noteText}
                 onChangeText={setNoteText}
                 multiline
+                autoFocus
               />
               <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
                 <Text style={styles.saveText}>Save Note</Text>
@@ -432,7 +438,7 @@ export default function App() {
           </View>
         </Modal>
 
-        <Modal visible={showTitleModal} transparent animationType="fade">
+        <Modal visible={showTitleModal} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
@@ -443,6 +449,7 @@ export default function App() {
                 placeholderTextColor={COLORS.textSecondary}
                 value={titleText}
                 onChangeText={setTitleText}
+                autoFocus
               />
               <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
                 <Text style={styles.saveText}>Save</Text>
@@ -478,7 +485,7 @@ export default function App() {
         <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
           <View style={styles.captureInner} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideBtn} onPress={() => { applyOrientationLock({ gallery: true }); setShowGallery(true); }}>
+        <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
           <Text style={styles.sideBtnIcon}>▦</Text>
           <Text style={styles.sideBtnLabel}>Gallery</Text>
         </TouchableOpacity>
@@ -488,19 +495,16 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  // Base layouts
   fullScreen: { flex: 1, backgroundColor: COLORS.bg },
   permissionScreen: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   imageContainer: { flex: 1 },
   photoImage: { flex: 1, width: '100%', height: '100%', resizeMode: 'contain' },
   imageOverlay: { position: 'absolute' },
 
-  // Permission screen
   message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
   permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
   permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
-  // Camera screen
   cameraTopBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24,
@@ -525,7 +529,6 @@ const styles = StyleSheet.create({
   sideBtnIcon: { fontSize: 26 },
   sideBtnLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 4 },
 
-  // Photo view bottom bar
   bottomBar: {
     flexDirection: 'row', justifyContent: 'space-around',
     paddingVertical: 16, paddingBottom: 36,
@@ -537,7 +540,6 @@ const styles = StyleSheet.create({
   iconBtnIcon: { fontSize: 22 },
   iconBtnLabel: { color: COLORS.text, fontSize: 11, marginTop: 4 },
 
-  // Pins
   pin: { position: 'absolute', alignItems: 'center' },
   pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
   pinDot: {
@@ -554,7 +556,6 @@ const styles = StyleSheet.create({
   },
   notePreviewText: { color: '#fff', fontSize: 10 },
 
-  // Gallery
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16,
@@ -582,7 +583,6 @@ const styles = StyleSheet.create({
   emptyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '600', marginBottom: 8 },
   emptySubtitle: { color: COLORS.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
 
-  // Modals
   modalOverlay: {
     flex: 1, justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -610,7 +610,6 @@ const styles = StyleSheet.create({
   deleteButton: { padding: 14, borderRadius: 12, alignItems: 'center' },
   deleteText: { color: COLORS.danger, fontSize: 16 },
 
-  // Watermark & timestamp
   timestamp: {
     position: 'absolute', bottom: 12, right: 12,
     backgroundColor: 'rgba(0,0,0,0.5)',
