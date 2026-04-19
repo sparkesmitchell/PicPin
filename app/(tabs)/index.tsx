@@ -8,6 +8,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
+type Pin = { id: number; x: number; y: number; note: string };
+type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; title: string; timestamp?: number };
+
 const COLORS = {
   bg: '#0f0f0f',
   surface: '#1c1c1e',
@@ -20,7 +23,7 @@ const COLORS = {
   border: '#38383a',
 };
 
-function DraggablePin({ pin, onTap, onDragEnd, isDragging }) {
+function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: (pin: Pin) => void; onDragEnd: (id: number, x: number, y: number, isDragging: boolean) => void; isDragging: boolean }) {
   const pressStartTime = useRef(0);
   const didDrag = useRef(false);
 
@@ -66,18 +69,19 @@ function DraggablePin({ pin, onTap, onDragEnd, isDragging }) {
 
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [photo, setPhoto] = useState(null);
-  const [pins, setPins] = useState([]);
-  const [selectedPin, setSelectedPin] = useState(null);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [pins, setPins] = useState<Pin[]>([]);
+  const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [noteText, setNoteText] = useState('');
-  const [savedPhotos, setSavedPhotos] = useState([]);
+  const [savedPhotos, setSavedPhotos] = useState<SavedPhoto[]>([]);
   const [showGallery, setShowGallery] = useState(false);
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
-  const [editingPhotoId, setEditingPhotoId] = useState(null);
-  const cameraRef = useRef(null);
-  const viewShotRef = useRef(null);
-  const [draggingPinId, setDraggingPinId] = useState(null);
+  const [editingPhotoId, setEditingPhotoId] = useState<number | null>(null);
+  const cameraRef = useRef<any>(null);
+  const viewShotRef = useRef<any>(null);
+  const [draggingPinId, setDraggingPinId] = useState<number | null>(null);
+  const [photoTimestamp, setPhotoTimestamp] = useState<number | null>(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
 
@@ -92,14 +96,16 @@ export default function App() {
     setShowTitleModal(true);
   }
 
-  async function confirmSave(title, currentEditingId) {
+  async function confirmSave(title: string, currentEditingId: number | null) {
     try {
+      if (!viewShotRef.current) return;
       const flatUri = await viewShotRef.current.capture();
       let updated;
       if (currentEditingId) {
         updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
       } else {
-        const newEntry = { id: Date.now(), uri: photo, flatUri, pins, title: title || 'Untitled' };
+        const now = Date.now();
+        const newEntry = { id: now, uri: photo, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now };
         updated = [newEntry, ...savedPhotos];
       }
       const jsonString = JSON.stringify(updated);
@@ -109,32 +115,31 @@ export default function App() {
       setTitleText('');
       setEditingPhotoId(null);
       alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
-    } catch (e) { alert('Error: ' + e.message); }
+    } catch (e: any) { alert('Error: ' + e.message); }
   }
 
-  async function deletePhoto(id) {
+  async function deletePhoto(id: number) {
     const updated = savedPhotos.filter(p => p.id !== id);
     await AsyncStorage.setItem('savedPhotos', JSON.stringify(updated));
     setSavedPhotos(updated);
   }
 
   async function takePhoto() {
-  if (cameraRef.current) {
-    const result = await cameraRef.current.takePictureAsync({
-      exif: true,
-      skipProcessing: false,
-    });
-    
-    const manipulated = await ImageManipulator.manipulateAsync(
-      result.uri,
-      [{ rotate: 0 }],
-      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    
-    setPhoto(manipulated.uri);
-    setPins([]);
+    if (cameraRef.current) {
+      const result = await cameraRef.current.takePictureAsync({
+        exif: true,
+        skipProcessing: false,
+      });
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.uri,
+        [{ rotate: 0 }],
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setPhoto(manipulated.uri);
+      setPins([]);
+      setPhotoTimestamp(Date.now());
+    }
   }
-}
   
 
   async function pickFromGallery() {
@@ -145,26 +150,28 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
+      setPhotoTimestamp(Date.now());
     }
   }
 
   async function sharePhoto() {
     try {
+      if (!viewShotRef.current) return;
       const uri = await viewShotRef.current.capture();
       await Sharing.shareAsync(uri);
-    } catch (e) { alert('Error sharing: ' + e.message); }
+    } catch (e: any) { alert('Error sharing: ' + e.message); }
   }
 
-  async function saveGalleryPhotoToRoll(uri) {
+  async function saveGalleryPhotoToRoll(uri: string) {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') { alert('Permission needed'); return; }
       await MediaLibrary.saveToLibraryAsync(uri);
       alert('Saved to camera roll!');
-    } catch (e) { alert('Error: ' + e.message); }
+    } catch (e: any) { alert('Error: ' + e.message); }
   }
 
-  function handleImageTap(event) {
+  function handleImageTap(event: any) {
     const { locationX, locationY } = event.nativeEvent;
     const newPin = { id: Date.now(), x: locationX, y: locationY, note: '' };
     setPins(prev => [...prev, newPin]);
@@ -172,31 +179,33 @@ export default function App() {
     setNoteText('');
   }
 
-  function handlePinTap(event, pin) {
-    event.stopPropagation();
+  function handlePinTap(pin: Pin) {
     setSelectedPin(pin);
     setNoteText(pin.note);
   }
 
-  function handlePinDrag(id, newX, newY, isDragging) {
+  function handlePinDrag(id: number, newX: number, newY: number, isDragging: boolean) {
   setDraggingPinId(isDragging ? id : null);
   setPins(prev => prev.map(p => p.id === id ? { ...p, x: newX, y: newY } : p));
   }
 
   function saveNote() {
+    if (!selectedPin) return;
     setPins(prev => prev.map(p => p.id === selectedPin.id ? { ...p, note: noteText } : p));
     setSelectedPin(null);
   }
 
   function deletePin() {
+    if (!selectedPin) return;
     setPins(prev => prev.filter(p => p.id !== selectedPin.id));
     setSelectedPin(null);
   }
 
-  function openSavedPhoto(entry) {
+  function openSavedPhoto(entry: SavedPhoto) {
     setPhoto(entry.uri);
     setPins(entry.pins);
     setEditingPhotoId(entry.id);
+    setPhotoTimestamp(entry.timestamp ?? entry.id);
     setShowGallery(false);
   }
 
@@ -242,7 +251,7 @@ export default function App() {
                 </View>
               </TouchableOpacity>
               <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri)}>
+                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri || entry.uri)}>
                   <Text style={styles.cardActionText}>💾 Save</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
@@ -268,7 +277,7 @@ export default function App() {
             </View>
             <View style={styles.timestamp}>
               <Text style={styles.timestampText}>
-                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                {new Date(photoTimestamp ?? Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(photoTimestamp ?? Date.now()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
               </Text>
             </View>
             {pins.map(pin => (
