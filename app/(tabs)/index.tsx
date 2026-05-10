@@ -5,11 +5,17 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, KeyboardAvoidingView, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 
+// x, y are normalized fractions [0..1] of the image container dimensions
 type Pin = { id: number; x: number; y: number; note: string };
-type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; title: string; timestamp?: number };
+type SavedPhoto = {
+  id: number; uri: string; flatUri?: string; pins: Pin[]; title: string;
+  timestamp?: number; containerWidth?: number; containerHeight?: number;
+  pinsAreNormalized?: boolean;
+};
 
 const COLORS = {
   bg: '#0f0f0f',
@@ -23,7 +29,12 @@ const COLORS = {
   border: '#38383a',
 };
 
-function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: (pin: Pin) => void; onDragEnd: (id: number, x: number, y: number, isDragging: boolean) => void; isDragging: boolean }) {
+function DraggablePin({ pin, onTap, onDragEnd, isDragging }: {
+  pin: Pin; // x, y are screen-space pixels here
+  onTap: () => void;
+  onDragEnd: (id: number, x: number, y: number, isDragging: boolean) => void;
+  isDragging: boolean;
+}) {
   const pressStartTime = useRef(0);
   const didDrag = useRef(false);
 
@@ -41,7 +52,7 @@ function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: 
     onPanResponderRelease: (_, gs) => {
       const elapsed = Date.now() - pressStartTime.current;
       if (!didDrag.current && elapsed < 300) {
-        onTap(pin);
+        onTap();
       } else {
         onDragEnd(pin.id, pin.x + gs.dx, pin.y + gs.dy, false);
       }
@@ -70,7 +81,7 @@ function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: 
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState<string | null>(null);
-  const [pins, setPins] = useState<Pin[]>([]);
+  const [pins, setPins] = useState<Pin[]>([]); // normalized [0..1] coords
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savedPhotos, setSavedPhotos] = useState<SavedPhoto[]>([]);
@@ -82,6 +93,16 @@ export default function App() {
   const viewShotRef = useRef<any>(null);
   const [draggingPinId, setDraggingPinId] = useState<number | null>(null);
   const [photoTimestamp, setPhotoTimestamp] = useState<number | null>(null);
+  const [pinContainerDims, setPinContainerDims] = useState<{ width: number; height: number } | null>(null);
+
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const rawIsLandscape = windowWidth > windowHeight;
+  const [isLandscape, setIsLandscape] = useState(rawIsLandscape);
+  useEffect(() => {
+    const t = setTimeout(() => setIsLandscape(rawIsLandscape), 400);
+    return () => clearTimeout(t);
+  }, [rawIsLandscape]);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => { loadSavedPhotos(); }, []);
 
@@ -90,6 +111,19 @@ export default function App() {
       const data = await AsyncStorage.getItem('savedPhotos');
       if (data) setSavedPhotos(JSON.parse(data));
     } catch (e) { console.log('Error loading photos', e); }
+  }
+
+  function handleContainerLayout(event: any) {
+    const { width, height } = event.nativeEvent.layout;
+    if (width > 0 && height > 0) {
+      setPinContainerDims({ width, height });
+    }
+  }
+
+  function normalizeLegacyPins(legacyPins: Pin[], containerWidth?: number, containerHeight?: number): Pin[] {
+    const w = containerWidth ?? 375;
+    const h = containerHeight ?? 667;
+    return legacyPins.map(p => ({ ...p, x: p.x / w, y: p.y / h }));
   }
 
   async function saveCurrentPhoto() {
@@ -102,10 +136,16 @@ export default function App() {
       const flatUri = await viewShotRef.current.capture();
       let updated;
       if (currentEditingId) {
-        updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
+        updated = savedPhotos.map(p => p.id === currentEditingId
+          ? { ...p, title: title || 'Untitled', pins, flatUri, pinsAreNormalized: true, containerWidth: pinContainerDims?.width, containerHeight: pinContainerDims?.height }
+          : p);
       } else {
         const now = Date.now();
-        const newEntry = { id: now, uri: photo, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now };
+        const newEntry: SavedPhoto = {
+          id: now, uri: photo!, flatUri, pins, pinsAreNormalized: true,
+          title: title || 'Untitled', timestamp: photoTimestamp ?? now,
+          containerWidth: pinContainerDims?.width, containerHeight: pinContainerDims?.height,
+        };
         updated = [newEntry, ...savedPhotos];
       }
       const jsonString = JSON.stringify(updated);
@@ -126,21 +166,24 @@ export default function App() {
 
   async function takePhoto() {
     if (cameraRef.current) {
-      const result = await cameraRef.current.takePictureAsync({
-        exif: true,
-        skipProcessing: false,
-      });
-      const manipulated = await ImageManipulator.manipulateAsync(
-        result.uri,
-        [{ rotate: 0 }],
-        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      setPhoto(manipulated.uri);
+      const result = await cameraRef.current.takePictureAsync({ exif: true, skipProcessing: false });
+      const orientation: number = (result.exif as any)?.Orientation ?? 1;
+      // EXIF 6 = portrait (home bottom) needs 90° CW; 8 = portrait (home top) needs 90° CCW; 3 = 180°
+      const rotationMap: Record<number, number> = { 3: 180, 6: 90, 8: -90 };
+      const deg = rotationMap[orientation];
+      if (deg !== undefined) {
+        const { uri } = await ImageManipulator.manipulateAsync(
+          result.uri, [{ rotate: deg }], { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        setPhoto(uri);
+      } else {
+        setPhoto(result.uri);
+      }
       setPins([]);
+      setPinContainerDims(null);
       setPhotoTimestamp(Date.now());
     }
   }
-  
 
   async function pickFromGallery() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -150,6 +193,7 @@ export default function App() {
     if (!result.canceled) {
       setPhoto(result.assets[0].uri);
       setPins([]);
+      setPinContainerDims(null);
       setPhotoTimestamp(Date.now());
     }
   }
@@ -172,8 +216,14 @@ export default function App() {
   }
 
   function handleImageTap(event: any) {
+    if (!pinContainerDims) return;
     const { locationX, locationY } = event.nativeEvent;
-    const newPin = { id: Date.now(), x: locationX, y: locationY, note: '' };
+    const newPin: Pin = {
+      id: Date.now(),
+      x: locationX / pinContainerDims.width,
+      y: locationY / pinContainerDims.height,
+      note: '',
+    };
     setPins(prev => [...prev, newPin]);
     setSelectedPin(newPin);
     setNoteText('');
@@ -184,9 +234,12 @@ export default function App() {
     setNoteText(pin.note);
   }
 
-  function handlePinDrag(id: number, newX: number, newY: number, isDragging: boolean) {
-  setDraggingPinId(isDragging ? id : null);
-  setPins(prev => prev.map(p => p.id === id ? { ...p, x: newX, y: newY } : p));
+  function handlePinDrag(id: number, newScreenX: number, newScreenY: number, isDragging: boolean) {
+    if (!pinContainerDims) return;
+    setDraggingPinId(isDragging ? id : null);
+    const nx = Math.max(0, Math.min(1, newScreenX / pinContainerDims.width));
+    const ny = Math.max(0, Math.min(1, newScreenY / pinContainerDims.height));
+    setPins(prev => prev.map(p => p.id === id ? { ...p, x: nx, y: ny } : p));
   }
 
   function saveNote() {
@@ -202,10 +255,18 @@ export default function App() {
   }
 
   function openSavedPhoto(entry: SavedPhoto) {
+    const normalizedPins = entry.pinsAreNormalized
+      ? entry.pins
+      : normalizeLegacyPins(entry.pins, entry.containerWidth, entry.containerHeight);
     setPhoto(entry.uri);
-    setPins(entry.pins);
+    setPins(normalizedPins);
     setEditingPhotoId(entry.id);
     setPhotoTimestamp(entry.timestamp ?? entry.id);
+    setPinContainerDims(
+      entry.containerWidth && entry.containerHeight
+        ? { width: entry.containerWidth, height: entry.containerHeight }
+        : null
+    );
     setShowGallery(false);
   }
 
@@ -226,7 +287,7 @@ export default function App() {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" />
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
             <Text style={styles.headerBackText}>← Back</Text>
           </TouchableOpacity>
@@ -266,34 +327,46 @@ export default function App() {
   }
 
   if (photo) {
+    const ts = new Date(photoTimestamp ?? Date.now());
+    const tsDate = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const tsTime = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, isLandscape && styles.containerLandscape]}>
         <StatusBar barStyle="light-content" />
-        <ViewShot ref={viewShotRef} style={styles.imageContainer}>
+
+        <ViewShot ref={viewShotRef} style={styles.imageContainer} onLayout={handleContainerLayout}>
           <TouchableOpacity activeOpacity={1} onPress={handleImageTap} style={styles.imageContainer}>
             <Image source={{ uri: photo }} style={styles.camera} />
             <View style={styles.watermark}>
               <Text style={styles.watermarkText}>PicPins App</Text>
             </View>
             <View style={styles.timestamp}>
-              <Text style={styles.timestampText}>
-                {new Date(photoTimestamp ?? Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(photoTimestamp ?? Date.now()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
+              <Text style={styles.timestampText}>{tsDate} {tsTime}</Text>
             </View>
-            {pins.map(pin => (
-              <DraggablePin
-                key={pin.id}
-                pin={pin}
-                onTap={handlePinTap}
-                onDragEnd={handlePinDrag}
-                isDragging={draggingPinId === pin.id}
-              />
-            ))}
+            {pinContainerDims && pins.map(pin => {
+              const screenX = pin.x * pinContainerDims.width;
+              const screenY = pin.y * pinContainerDims.height;
+              return (
+                <DraggablePin
+                  key={pin.id}
+                  pin={{ ...pin, x: screenX, y: screenY }}
+                  onTap={() => handlePinTap(pin)}
+                  onDragEnd={(id, sx, sy, dragging) => handlePinDrag(id, sx, sy, dragging)}
+                  isDragging={draggingPinId === pin.id}
+                />
+              );
+            })}
           </TouchableOpacity>
         </ViewShot>
 
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
+        <View style={[
+          styles.actionBar,
+          isLandscape
+            ? [styles.actionBarLandscape, { paddingRight: Math.max(insets.right, 12) + 8 }]
+            : [styles.actionBarPortrait, { paddingBottom: Math.max(insets.bottom, 16) + 4 }],
+        ]}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); setPinContainerDims(null); }}>
             <Text style={styles.iconBtnIcon}>✕</Text>
             <Text style={styles.iconBtnLabel}>Retake</Text>
           </TouchableOpacity>
@@ -311,52 +384,66 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <Modal visible={selectedPin !== null} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>📍 Pin Note</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Add a note..."
-                placeholderTextColor={COLORS.textSecondary}
-                value={noteText}
-                onChangeText={setNoteText}
-                multiline
-                autoFocus
-              />
-              <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
-                <Text style={styles.saveText}>Save Note</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
-                <Text style={styles.deleteText}>Delete Pin</Text>
-              </TouchableOpacity>
-            </View>
+        {selectedPin !== null && (
+          <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}>
+            <TouchableOpacity
+              style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
+              activeOpacity={1}
+              onPress={() => setSelectedPin(null)}
+            />
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+              <View style={styles.modalBox}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle}>📍 Pin Note</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Add a note..."
+                  placeholderTextColor={COLORS.textSecondary}
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  multiline
+                  autoFocus
+                />
+                <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
+                  <Text style={styles.saveText}>Save Note</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
+                  <Text style={styles.deleteText}>Delete Pin</Text>
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
           </View>
-        </Modal>
+        )}
 
-        <Modal visible={showTitleModal} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Name this photo</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Living room inspection"
-                placeholderTextColor={COLORS.textSecondary}
-                value={titleText}
-                onChangeText={setTitleText}
-                autoFocus
-              />
-              <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
-                <Text style={styles.saveText}>Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
-                <Text style={styles.deleteText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+        {showTitleModal && (
+          <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}>
+            <TouchableOpacity
+              style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
+              activeOpacity={1}
+              onPress={() => setShowTitleModal(false)}
+            />
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+              <View style={styles.modalBox}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle}>Name this photo</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Living room inspection"
+                  placeholderTextColor={COLORS.textSecondary}
+                  value={titleText}
+                  onChangeText={setTitleText}
+                  autoFocus
+                />
+                <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
+                  <Text style={styles.deleteText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
           </View>
-        </Modal>
+        )}
       </View>
     );
   }
@@ -364,16 +451,16 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <CameraView 
-  style={styles.camera} 
-  facing="back" 
-  ref={cameraRef}
-  videoStabilizationMode="auto"
-/>
-      <View style={styles.cameraTopBar}>
+      <CameraView
+        style={styles.camera}
+        facing="back"
+        ref={cameraRef}
+        videoStabilizationMode="auto"
+      />
+      <View style={[styles.cameraTopBar, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.appName}>PicPins</Text>
       </View>
-      <View style={styles.cameraBottomBar}>
+      <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 16, paddingLeft: insets.left, paddingRight: insets.right }]}>
         <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
           <Text style={styles.sideBtnIcon}>📷</Text>
           <Text style={styles.sideBtnLabel}>Roll</Text>
@@ -392,6 +479,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
+  containerLandscape: { flexDirection: 'row' },
   message: { textAlign: 'center', color: COLORS.text, fontSize: 16, padding: 24 },
   permissionButton: { backgroundColor: COLORS.accent, margin: 24, padding: 16, borderRadius: 12, alignItems: 'center' },
   permissionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
@@ -401,7 +489,7 @@ const styles = StyleSheet.create({
   // Camera screen
   cameraTopBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24,
+    paddingBottom: 16, paddingHorizontal: 24,
     backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
   },
@@ -409,7 +497,7 @@ const styles = StyleSheet.create({
   cameraBottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    paddingBottom: 48, paddingTop: 24,
+    paddingTop: 24,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   captureButton: {
@@ -423,12 +511,24 @@ const styles = StyleSheet.create({
   sideBtnIcon: { fontSize: 26 },
   sideBtnLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 4 },
 
-  // Photo view
-  bottomBar: {
-    flexDirection: 'row', justifyContent: 'space-around',
-    paddingVertical: 16, paddingBottom: 36,
+  // Photo view — action bar
+  actionBar: {
     backgroundColor: COLORS.surface,
-    borderTopWidth: 1, borderTopColor: COLORS.border,
+    borderColor: COLORS.border,
+  },
+  actionBarPortrait: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 16,
+    borderTopWidth: 1,
+  },
+  actionBarLandscape: {
+    flexDirection: 'column',
+    justifyContent: 'space-around',
+    paddingVertical: 16,
+    paddingLeft: 12,
+    width: 90,
+    borderLeftWidth: 1,
   },
   iconBtn: { alignItems: 'center', padding: 10, borderRadius: 12, minWidth: 70, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border },
   iconBtnAccent: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
@@ -437,7 +537,6 @@ const styles = StyleSheet.create({
 
   // Pins
   pin: { position: 'absolute', alignItems: 'center' },
-  pinEmoji: { display: 'none' },
   pinDot: {
     width: 22, height: 22, borderRadius: 11,
     backgroundColor: '#ff3b30',
@@ -451,13 +550,12 @@ const styles = StyleSheet.create({
     maxWidth: 120, marginTop: 2,
   },
   notePreviewText: { color: '#fff', fontSize: 10 },
-
   pinDragging: { opacity: 0.75, transform: [{ scale: 1.2 }] },
 
   // Gallery
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16,
+    paddingBottom: 16, paddingHorizontal: 16,
     backgroundColor: COLORS.surface,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
@@ -483,14 +581,9 @@ const styles = StyleSheet.create({
   emptySubtitle: { color: COLORS.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
 
   // Modals
-  modalOverlay: {
-    flex: 1, justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingBottom: 300,
-  },
   modalBox: {
     backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 40,
+    padding: 24, paddingBottom: 40, maxHeight: '80%',
   },
   modalHandle: {
     width: 40, height: 4, borderRadius: 2,
