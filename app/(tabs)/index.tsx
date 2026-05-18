@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Modal, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 type Pin = { id: number; x: number; y: number; note: string };
@@ -311,8 +311,8 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <Modal visible={selectedPin !== null} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
+        <Modal visible={selectedPin !== null} transparent animationType="slide" supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}>
+          <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>📍 Pin Note</Text>
@@ -332,11 +332,11 @@ export default function App() {
                 <Text style={styles.deleteText}>Delete Pin</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
-        <Modal visible={showTitleModal} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
+        <Modal visible={showTitleModal} transparent animationType="slide" supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}>
+          <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>Name this photo</Text>
@@ -355,7 +355,7 @@ export default function App() {
                 <Text style={styles.deleteText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     );
@@ -486,7 +486,6 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1, justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingBottom: 300,
   },
   modalBox: {
     backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
