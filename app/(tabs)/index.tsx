@@ -3,6 +3,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -84,6 +85,19 @@ export default function App() {
   const [photoTimestamp, setPhotoTimestamp] = useState<number | null>(null);
 
   useEffect(() => { loadSavedPhotos(); }, []);
+
+  useEffect(() => {
+    if (photo) {
+      Image.getSize(photo, (width, height) => {
+        const lock = width > height
+          ? ScreenOrientation.OrientationLock.LANDSCAPE
+          : ScreenOrientation.OrientationLock.PORTRAIT_UP;
+        ScreenOrientation.lockAsync(lock);
+      });
+    } else {
+      ScreenOrientation.unlockAsync();
+    }
+  }, [photo]);
 
   async function loadSavedPhotos() {
     try {
