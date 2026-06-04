@@ -308,24 +308,45 @@ export default function App() {
           </TouchableOpacity>
         </ViewShot>
 
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
-            <Text style={styles.iconBtnIcon}>✕</Text>
-            <Text style={styles.iconBtnLabel}>Retake</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={sharePhoto}>
-            <Text style={styles.iconBtnIcon}>↗</Text>
-            <Text style={styles.iconBtnLabel}>Share</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.iconBtn, styles.iconBtnAccent]} onPress={saveCurrentPhoto}>
-            <Text style={styles.iconBtnIcon}>💾</Text>
-            <Text style={styles.iconBtnLabel}>Save</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
-            <Text style={styles.iconBtnIcon}>▦</Text>
-            <Text style={styles.iconBtnLabel}>Gallery</Text>
-          </TouchableOpacity>
-        </View>
+        {isLandscape ? (
+          <View style={styles.photoRightBar}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
+              <Text style={styles.iconBtnIcon}>✕</Text>
+              <Text style={styles.iconBtnLabel}>New Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={sharePhoto}>
+              <Text style={styles.iconBtnIcon}>↗</Text>
+              <Text style={styles.iconBtnLabel}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.iconBtn, styles.iconBtnAccent]} onPress={saveCurrentPhoto}>
+              <Text style={styles.iconBtnIcon}>💾</Text>
+              <Text style={styles.iconBtnLabel}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
+              <Text style={styles.iconBtnIcon}>▦</Text>
+              <Text style={styles.iconBtnLabel}>Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.bottomBar}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => { setPhoto(null); setEditingPhotoId(null); }}>
+              <Text style={styles.iconBtnIcon}>✕</Text>
+              <Text style={styles.iconBtnLabel}>New Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={sharePhoto}>
+              <Text style={styles.iconBtnIcon}>↗</Text>
+              <Text style={styles.iconBtnLabel}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.iconBtn, styles.iconBtnAccent]} onPress={saveCurrentPhoto}>
+              <Text style={styles.iconBtnIcon}>💾</Text>
+              <Text style={styles.iconBtnLabel}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowGallery(true)}>
+              <Text style={styles.iconBtnIcon}>▦</Text>
+              <Text style={styles.iconBtnLabel}>Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <Modal visible={selectedPin !== null} transparent animationType="slide" supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}>
           <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -476,6 +497,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16, paddingBottom: 36,
     backgroundColor: COLORS.surface,
     borderTopWidth: 1, borderTopColor: COLORS.border,
+  },
+  photoRightBar: {
+    position: 'absolute', right: 0, top: 0, bottom: 0,
+    flexDirection: 'column', alignItems: 'center', justifyContent: 'space-around',
+    width: 110,
+    paddingVertical: 24, paddingHorizontal: 8,
+    backgroundColor: COLORS.surface,
+    borderLeftWidth: 1, borderLeftColor: COLORS.border,
   },
   iconBtn: { alignItems: 'center', padding: 10, borderRadius: 12, minWidth: 70, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border },
   iconBtnAccent: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
