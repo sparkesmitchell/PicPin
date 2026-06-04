@@ -6,7 +6,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 type Pin = { id: number; x: number; y: number; note: string };
@@ -69,6 +69,8 @@ function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: 
 }
 
 export default function App() {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState<string | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
@@ -329,22 +331,24 @@ export default function App() {
           <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>📍 Pin Note</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Add a note..."
-                placeholderTextColor={COLORS.textSecondary}
-                value={noteText}
-                onChangeText={setNoteText}
-                multiline
-                autoFocus
-              />
-              <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
-                <Text style={styles.saveText}>Save Note</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
-                <Text style={styles.deleteText}>Delete Pin</Text>
-              </TouchableOpacity>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} bounces={false}>
+                <Text style={styles.modalTitle}>📍 Pin Note</Text>
+                <TextInput
+                  style={[styles.textInput, isLandscape && styles.textInputLandscape]}
+                  placeholder="Add a note..."
+                  placeholderTextColor={COLORS.textSecondary}
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  multiline
+                  autoFocus
+                />
+                <TouchableOpacity style={styles.saveButton} onPress={saveNote}>
+                  <Text style={styles.saveText}>Save Note</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={deletePin}>
+                  <Text style={styles.deleteText}>Delete Pin</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -353,21 +357,23 @@ export default function App() {
           <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <View style={styles.modalBox}>
               <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Name this photo</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Living room inspection"
-                placeholderTextColor={COLORS.textSecondary}
-                value={titleText}
-                onChangeText={setTitleText}
-                autoFocus
-              />
-              <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
-                <Text style={styles.saveText}>Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
-                <Text style={styles.deleteText}>Cancel</Text>
-              </TouchableOpacity>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} bounces={false}>
+                <Text style={styles.modalTitle}>Name this photo</Text>
+                <TextInput
+                  style={[styles.textInput, isLandscape && styles.textInputLandscape]}
+                  placeholder="e.g. Living room inspection"
+                  placeholderTextColor={COLORS.textSecondary}
+                  value={titleText}
+                  onChangeText={setTitleText}
+                  autoFocus
+                />
+                <TouchableOpacity style={styles.saveButton} onPress={() => confirmSave(titleText, editingPhotoId)}>
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => setShowTitleModal(false)}>
+                  <Text style={styles.deleteText}>Cancel</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -504,6 +510,7 @@ const styles = StyleSheet.create({
   modalBox: {
     backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 24, paddingBottom: 40,
+    flexShrink: 1,
   },
   modalHandle: {
     width: 40, height: 4, borderRadius: 2,
@@ -514,6 +521,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
     borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.text,
     minHeight: 90, marginBottom: 16,
+  },
+  textInputLandscape: {
+    minHeight: 44,
   },
   saveButton: {
     backgroundColor: COLORS.accent, padding: 16,
