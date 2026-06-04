@@ -390,22 +390,38 @@ export default function App() {
   ref={cameraRef}
   videoStabilizationMode="auto"
 />
-      <View style={styles.cameraTopBar}>
+      <View style={[styles.cameraTopBar, isLandscape && styles.cameraTopBarLandscape]}>
         <Text style={styles.appName}>PicPins</Text>
       </View>
-      <View style={styles.cameraBottomBar}>
-        <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
-          <Text style={styles.sideBtnIcon}>📷</Text>
-          <Text style={styles.sideBtnLabel}>Roll</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
-          <View style={styles.captureInner} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
-          <Text style={styles.sideBtnIcon}>▦</Text>
-          <Text style={styles.sideBtnLabel}>Gallery</Text>
-        </TouchableOpacity>
-      </View>
+      {isLandscape ? (
+        <View style={styles.cameraRightBar}>
+          <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
+            <Text style={styles.sideBtnIcon}>📷</Text>
+            <Text style={styles.sideBtnLabel}>Roll</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+            <View style={styles.captureInner} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
+            <Text style={styles.sideBtnIcon}>▦</Text>
+            <Text style={styles.sideBtnLabel}>Gallery</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.cameraBottomBar}>
+          <TouchableOpacity style={styles.sideBtn} onPress={pickFromGallery}>
+            <Text style={styles.sideBtnIcon}>📷</Text>
+            <Text style={styles.sideBtnLabel}>Roll</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+            <View style={styles.captureInner} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sideBtn} onPress={() => setShowGallery(true)}>
+            <Text style={styles.sideBtnIcon}>▦</Text>
+            <Text style={styles.sideBtnLabel}>Gallery</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -426,10 +442,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   appName: { color: '#fff', fontSize: 20, fontWeight: '700', letterSpacing: 1 },
+  cameraTopBarLandscape: {
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
   cameraBottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
     paddingBottom: 48, paddingTop: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  cameraRightBar: {
+    position: 'absolute', right: 0, top: 0, bottom: 0,
+    flexDirection: 'column', alignItems: 'center', justifyContent: 'space-around',
+    width: 100,
+    paddingVertical: 24, paddingHorizontal: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   captureButton: {
