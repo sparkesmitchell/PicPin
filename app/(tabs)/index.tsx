@@ -247,16 +247,27 @@ export default function App() {
 <meta charset="utf-8" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: #fff; }
-  .cover { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background: #0f0f0f; color: #fff; text-align: center; padding: 40px; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; }
+  .cover {
+    width: 100%; height: 100vh; overflow: hidden;
+    page-break-after: always; page-break-inside: avoid;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    background: #0f0f0f; color: #fff; text-align: center; padding: 40px;
+  }
   .cover h1 { font-size: 36px; font-weight: 700; margin-bottom: 12px; }
   .cover p { font-size: 16px; color: rgba(255,255,255,0.6); }
   .cover .meta { font-size: 14px; color: rgba(255,255,255,0.4); margin-top: 24px; }
-  .page { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 32px; background: #fff; }
-  .page img { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
-  .caption { margin-top: 20px; text-align: center; width: 100%; }
-  .caption .title { display: block; font-size: 22px; font-weight: 600; color: #111; }
-  .caption .date { display: block; font-size: 14px; color: #888; margin-top: 6px; }
+  .page {
+    width: 100%; height: 100vh; overflow: hidden;
+    page-break-after: always; page-break-inside: avoid;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    padding: 32px; background: #fff;
+  }
+  .page:last-child { page-break-after: auto; }
+  .page img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); flex-shrink: 1; }
+  .caption { margin-top: 16px; text-align: center; width: 100%; flex-shrink: 0; }
+  .caption .title { display: block; font-size: 20px; font-weight: 600; color: #111; }
+  .caption .date { display: block; font-size: 13px; color: #888; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -270,7 +281,13 @@ export default function App() {
 </html>`;
 
       const { uri: pdfUri } = await Print.printToFileAsync({ html, base64: false });
-      await Sharing.shareAsync(pdfUri, { mimeType: 'application/pdf', dialogTitle: `${folder.name} Report` });
+      const safeName = folder.name.replace(/[^\w\s-]/g, '').trim();
+      const filename = `${safeName} Report.pdf`;
+      const namedUri = FileSystem.documentDirectory + filename;
+      await FileSystem.copyAsync({ from: pdfUri, to: namedUri });
+      await Sharing.shareAsync(namedUri, { mimeType: 'application/pdf', dialogTitle: filename });
+      FileSystem.deleteAsync(pdfUri, { idempotent: true }).catch(() => {});
+      FileSystem.deleteAsync(namedUri, { idempotent: true }).catch(() => {});
     } catch (e: any) {
       Alert.alert('Error', 'Could not generate report: ' + e.message);
     }
