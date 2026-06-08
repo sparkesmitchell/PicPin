@@ -10,7 +10,12 @@ import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView,
 import ViewShot from 'react-native-view-shot';
 
 type Pin = { id: number; x: number; y: number; note: string };
-type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; title: string; timestamp?: number };
+type Folder = { id: string; name: string; createdAt: number };
+type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; title: string; timestamp?: number; folderId: string };
+
+const DEFAULT_FOLDER: Folder = { id: 'general', name: 'General', createdAt: 0 };
+const STORAGE_KEY_PHOTOS = 'savedPhotos';
+const STORAGE_KEY_FOLDERS = 'savedFolders';
 
 const COLORS = {
   bg: '#0f0f0f',
@@ -78,6 +83,12 @@ export default function App() {
   const [noteText, setNoteText] = useState('');
   const [savedPhotos, setSavedPhotos] = useState<SavedPhoto[]>([]);
   const [showGallery, setShowGallery] = useState(false);
+  const [folders, setFolders] = useState<Folder[]>([DEFAULT_FOLDER]);
+  const [activeFolderId, setActiveFolderId] = useState<string>('general');
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [activeFolderView, setActiveFolderView] = useState<string | null>(null);
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState<number | null>(null);
@@ -86,7 +97,7 @@ export default function App() {
   const [draggingPinId, setDraggingPinId] = useState<number | null>(null);
   const [photoTimestamp, setPhotoTimestamp] = useState<number | null>(null);
 
-  useEffect(() => { loadSavedPhotos(); }, []);
+  useEffect(() => { loadData(); }, []);
 
   useEffect(() => {
     if (photo) {
@@ -101,11 +112,63 @@ export default function App() {
     }
   }, [photo]);
 
-  async function loadSavedPhotos() {
+  async function loadData() {
     try {
-      const data = await AsyncStorage.getItem('savedPhotos');
-      if (data) setSavedPhotos(JSON.parse(data));
-    } catch (e) { console.log('Error loading photos', e); }
+      const folderData = await AsyncStorage.getItem(STORAGE_KEY_FOLDERS);
+      const loadedFolders: Folder[] = folderData ? JSON.parse(folderData) : [];
+      const hasGeneral = loadedFolders.some(f => f.id === 'general');
+      const mergedFolders = hasGeneral ? loadedFolders : [DEFAULT_FOLDER, ...loadedFolders];
+      setFolders(mergedFolders);
+
+      const photoData = await AsyncStorage.getItem(STORAGE_KEY_PHOTOS);
+      if (photoData) {
+        const parsed: SavedPhoto[] = JSON.parse(photoData);
+        const migrated = parsed.map(p => p.folderId ? p : { ...p, folderId: 'general' });
+        if (parsed.some(p => !p.folderId)) {
+          await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(migrated));
+        }
+        setSavedPhotos(migrated);
+      }
+    } catch (e) { console.log('Error loading data', e); }
+  }
+
+  async function persistFolders(updated: Folder[]) {
+    await AsyncStorage.setItem(STORAGE_KEY_FOLDERS, JSON.stringify(updated));
+    setFolders(updated);
+  }
+
+  function createFolder(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newFolder: Folder = { id: String(Date.now()), name: trimmed, createdAt: Date.now() };
+    const updated = [...folders, newFolder];
+    persistFolders(updated);
+    setActiveFolderId(newFolder.id);
+    setNewFolderName('');
+    setShowNewFolderInput(false);
+    setShowFolderPicker(false);
+  }
+
+  async function deleteFolder(id: string) {
+    if (id === 'general') return;
+    const updatedPhotos = savedPhotos.map(p => p.folderId === id ? { ...p, folderId: 'general' } : p);
+    await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updatedPhotos));
+    setSavedPhotos(updatedPhotos);
+    const updatedFolders = folders.filter(f => f.id !== id);
+    persistFolders(updatedFolders);
+    if (activeFolderId === id) setActiveFolderId('general');
+    if (activeFolderView === id) setActiveFolderView(null);
+  }
+
+  function getFolderPhotoCount(folderId: string): number {
+    return savedPhotos.filter(p => p.folderId === folderId).length;
+  }
+
+  function getFolderThumbnail(folderId: string): string | null {
+    const photos = savedPhotos
+      .filter(p => p.folderId === folderId)
+      .sort((a, b) => (b.timestamp ?? b.id) - (a.timestamp ?? a.id));
+    return photos.length > 0 ? (photos[0].flatUri || photos[0].uri) : null;
   }
 
   async function saveCurrentPhoto() {
@@ -121,11 +184,11 @@ export default function App() {
         updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
       } else {
         const now = Date.now();
-        const newEntry = { id: now, uri: photo, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now };
+        const newEntry: SavedPhoto = { id: now, uri: photo!, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now, folderId: activeFolderId };
         updated = [newEntry, ...savedPhotos];
       }
       const jsonString = JSON.stringify(updated);
-      await AsyncStorage.setItem('savedPhotos', jsonString);
+      await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, jsonString);
       setSavedPhotos(JSON.parse(jsonString));
       setShowTitleModal(false);
       setTitleText('');
@@ -136,7 +199,7 @@ export default function App() {
 
   async function deletePhoto(id: number) {
     const updated = savedPhotos.filter(p => p.id !== id);
-    await AsyncStorage.setItem('savedPhotos', JSON.stringify(updated));
+    await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
     setSavedPhotos(updated);
   }
 
@@ -223,6 +286,7 @@ export default function App() {
     setEditingPhotoId(entry.id);
     setPhotoTimestamp(entry.timestamp ?? entry.id);
     setShowGallery(false);
+    setActiveFolderView(null);
   }
 
   if (!permission) return <View />;
@@ -239,44 +303,96 @@ export default function App() {
   }
 
   if (showGallery) {
+    const inFolder = activeFolderView !== null;
+    const currentFolder = inFolder ? folders.find(f => f.id === activeFolderView) : null;
+    const photosInView = inFolder ? savedPhotos.filter(p => p.folderId === activeFolderView) : [];
+
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setShowGallery(false)} style={styles.headerBack}>
+          <TouchableOpacity
+            onPress={() => {
+              if (inFolder) {
+                setActiveFolderView(null);
+              } else {
+                setShowGallery(false);
+                setActiveFolderView(null);
+              }
+            }}
+            style={styles.headerBack}
+          >
             <Text style={styles.headerBackText}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Photos</Text>
+          <Text style={styles.headerTitle}>
+            {inFolder ? (currentFolder?.name ?? 'Folder') : 'My Photos'}
+          </Text>
           <View style={{ width: 70 }} />
         </View>
-        <ScrollView contentContainerStyle={styles.galleryGrid}>
-          {savedPhotos.length === 0 && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>📷</Text>
-              <Text style={styles.emptyTitle}>No photos yet</Text>
-              <Text style={styles.emptySubtitle}>Take a photo and save it to see it here</Text>
-            </View>
-          )}
-          {savedPhotos.map(entry => (
-            <View key={entry.id} style={styles.galleryCard}>
-              <TouchableOpacity onPress={() => openSavedPhoto(entry)}>
-                <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.thumbnail} />
-                <View style={styles.cardInfo}>
-                  <Text style={styles.cardTitle}>{entry.title || 'Untitled'}</Text>
-                  <Text style={styles.cardPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
-                </View>
-              </TouchableOpacity>
-              <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri || entry.uri)}>
-                  <Text style={styles.cardActionText}>💾 Save</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
-                  <Text style={styles.cardActionText}>🗑 Delete</Text>
-                </TouchableOpacity>
+
+        {inFolder ? (
+          <ScrollView contentContainerStyle={styles.galleryGrid}>
+            {photosInView.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>📷</Text>
+                <Text style={styles.emptyTitle}>No photos yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Photos saved to "{currentFolder?.name}" will appear here
+                </Text>
               </View>
-            </View>
-          ))}
-        </ScrollView>
+            )}
+            {photosInView.map(entry => (
+              <View key={entry.id} style={styles.galleryCard}>
+                <TouchableOpacity onPress={() => openSavedPhoto(entry)}>
+                  <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.thumbnail} />
+                  <View style={styles.cardInfo}>
+                    <Text style={styles.cardTitle}>{entry.title || 'Untitled'}</Text>
+                    <Text style={styles.cardPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.cardActions}>
+                  <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri || entry.uri)}>
+                    <Text style={styles.cardActionText}>💾 Save</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
+                    <Text style={styles.cardActionText}>🗑 Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <ScrollView contentContainerStyle={styles.galleryGrid}>
+            {folders.map(folder => {
+              const count = getFolderPhotoCount(folder.id);
+              const thumb = getFolderThumbnail(folder.id);
+              return (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={styles.folderCard}
+                  onPress={() => setActiveFolderView(folder.id)}
+                >
+                  {thumb ? (
+                    <Image source={{ uri: thumb }} style={styles.folderThumbnail} />
+                  ) : (
+                    <View style={[styles.folderThumbnail, styles.folderThumbnailEmpty]}>
+                      <Text style={styles.folderEmptyIcon}>📁</Text>
+                    </View>
+                  )}
+                  <View style={styles.folderCardInfo}>
+                    <Text style={styles.folderName}>{folder.name}</Text>
+                    <Text style={styles.folderCount}>{count} photo{count !== 1 ? 's' : ''}</Text>
+                  </View>
+                  {folder.id !== 'general' && (
+                    <TouchableOpacity style={styles.folderDeleteBtn} onPress={() => deleteFolder(folder.id)}>
+                      <Text style={styles.folderDeleteText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
     );
   }
@@ -380,6 +496,9 @@ export default function App() {
               <View style={styles.modalHandle} />
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} bounces={false}>
                 <Text style={styles.modalTitle}>Name this photo</Text>
+                <Text style={styles.folderDestinationLabel}>
+                  Saving to: {folders.find(f => f.id === activeFolderId)?.name ?? 'General'}
+                </Text>
                 <TextInput
                   style={[styles.textInput, isLandscape && styles.textInputLandscape]}
                   placeholder="e.g. Living room inspection"
@@ -413,6 +532,12 @@ export default function App() {
 />
       <View style={[styles.cameraTopBar, isLandscape && styles.cameraTopBarLandscape]}>
         <Text style={styles.appName}>PicPins</Text>
+        <TouchableOpacity style={styles.folderPill} onPress={() => setShowFolderPicker(true)}>
+          <Text style={styles.folderPillText} numberOfLines={1}>
+            📁 {folders.find(f => f.id === activeFolderId)?.name ?? 'General'}
+          </Text>
+          <Text style={styles.folderPillChevron}> ▾</Text>
+        </TouchableOpacity>
       </View>
       {isLandscape ? (
         <View style={styles.cameraRightBar}>
@@ -443,6 +568,63 @@ export default function App() {
           </TouchableOpacity>
         </View>
       )}
+
+      <Modal
+        visible={showFolderPicker}
+        transparent
+        animationType="slide"
+        supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
+      >
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Select Folder</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} bounces={false}>
+              {folders.map(folder => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={styles.folderPickerRow}
+                  onPress={() => {
+                    setActiveFolderId(folder.id);
+                    setShowFolderPicker(false);
+                    setShowNewFolderInput(false);
+                  }}
+                >
+                  <Text style={styles.folderPickerRowText}>
+                    {activeFolderId === folder.id ? '✓  ' : '    '}{folder.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {showNewFolderInput ? (
+                <View style={styles.newFolderRow}>
+                  <TextInput
+                    style={styles.newFolderInput}
+                    placeholder="Folder name"
+                    placeholderTextColor={COLORS.textSecondary}
+                    value={newFolderName}
+                    onChangeText={setNewFolderName}
+                    autoFocus
+                    onSubmitEditing={() => createFolder(newFolderName)}
+                  />
+                  <TouchableOpacity style={styles.newFolderConfirm} onPress={() => createFolder(newFolderName)}>
+                    <Text style={styles.newFolderConfirmText}>Add</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.folderPickerRow} onPress={() => setShowNewFolderInput(true)}>
+                  <Text style={[styles.folderPickerRowText, { color: COLORS.accent }]}>+ New Folder</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => { setShowFolderPicker(false); setShowNewFolderInput(false); setNewFolderName(''); }}
+            >
+              <Text style={styles.deleteText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -604,4 +786,53 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   watermarkText: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+
+  // Folder pill on camera screen
+  folderPill: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
+    marginTop: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    maxWidth: 220,
+  },
+  folderPillText: { color: '#fff', fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  folderPillChevron: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+
+  // Folder cards in gallery level 1
+  folderCard: {
+    backgroundColor: COLORS.surface, borderRadius: 16, overflow: 'hidden',
+    borderWidth: 1, borderColor: COLORS.border,
+    flexDirection: 'row', alignItems: 'center',
+  },
+  folderThumbnail: { width: 80, height: 80 },
+  folderThumbnailEmpty: {
+    backgroundColor: COLORS.surface2, justifyContent: 'center', alignItems: 'center',
+  },
+  folderEmptyIcon: { fontSize: 32 },
+  folderCardInfo: { flex: 1, paddingHorizontal: 14 },
+  folderName: { color: COLORS.text, fontSize: 16, fontWeight: '600' },
+  folderCount: { color: COLORS.textSecondary, fontSize: 13, marginTop: 3 },
+  folderDeleteBtn: { padding: 16, justifyContent: 'center', alignItems: 'center' },
+  folderDeleteText: { color: COLORS.textSecondary, fontSize: 16 },
+
+  // Folder picker modal
+  folderPickerRow: {
+    paddingVertical: 14, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  folderPickerRowText: { color: COLORS.text, fontSize: 16 },
+  newFolderRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, gap: 8 },
+  newFolderInput: {
+    flex: 1, backgroundColor: COLORS.surface2,
+    borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 10, padding: 12, fontSize: 15, color: COLORS.text,
+  },
+  newFolderConfirm: {
+    backgroundColor: COLORS.accent, borderRadius: 10,
+    paddingVertical: 12, paddingHorizontal: 16,
+  },
+  newFolderConfirmText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+
+  // Save modal destination label
+  folderDestinationLabel: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 12, marginTop: -8 },
 });
