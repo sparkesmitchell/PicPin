@@ -18,6 +18,23 @@ type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; titl
 const DEFAULT_FOLDER: Folder = { id: 'general', name: 'General', createdAt: 0 };
 const STORAGE_KEY_PHOTOS = 'savedPhotos';
 const STORAGE_KEY_FOLDERS = 'savedFolders';
+const PHOTO_DIR = FileSystem.documentDirectory + 'picpins/';
+
+// Copies an image out of a temporary/cache location into the app's permanent
+// document directory so it survives iOS purging tmp/cache. Returns the new uri,
+// or the original uri if the copy fails.
+async function persistImage(uri: string, name: string): Promise<string> {
+  try {
+    const dir = await FileSystem.getInfoAsync(PHOTO_DIR);
+    if (!dir.exists) await FileSystem.makeDirectoryAsync(PHOTO_DIR, { intermediates: true });
+    const dest = PHOTO_DIR + name;
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    return dest;
+  } catch (e) {
+    console.log('persistImage failed', e);
+    return uri;
+  }
+}
 
 const COLORS = {
   bg: '#0f0f0f',
@@ -184,12 +201,26 @@ export default function App() {
     }
 
     try {
-      const photoSections = await Promise.all(
+      // Returns the first of the candidate uris that actually exists on disk.
+      async function firstReadable(candidates: (string | undefined)[]): Promise<string | null> {
+        for (const c of candidates) {
+          if (!c) continue;
+          try {
+            const info = await FileSystem.getInfoAsync(c);
+            if (info.exists) return c;
+          } catch {}
+        }
+        return null;
+      }
+
+      const sections = await Promise.all(
         photos.map(async (p) => {
-          const uri = p.flatUri || p.uri;
-          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-          const date = new Date(p.timestamp ?? p.id).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-          return `
+          const uri = await firstReadable([p.flatUri, p.uri]);
+          if (!uri) return null;
+          try {
+            const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+            const date = new Date(p.timestamp ?? p.id).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+            return `
             <div class="page">
               <img src="data:image/jpeg;base64,${base64}" />
               <div class="caption">
@@ -197,8 +228,18 @@ export default function App() {
                 <span class="date">${date}</span>
               </div>
             </div>`;
+          } catch {
+            return null;
+          }
         })
       );
+
+      const photoSections = sections.filter((s): s is string => s !== null);
+
+      if (photoSections.length === 0) {
+        Alert.alert('No Photos Available', 'The image files for this folder could not be found. They may have been removed by the system. New photos will be stored permanently.');
+        return;
+      }
 
       const html = `<!DOCTYPE html>
 <html>
@@ -221,7 +262,7 @@ export default function App() {
 <body>
   <div class="cover">
     <h1>${folder.name}</h1>
-    <p>${photos.length} photo${photos.length !== 1 ? 's' : ''}</p>
+    <p>${photoSections.length} photo${photoSections.length !== 1 ? 's' : ''}</p>
     <p class="meta">Generated ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })} · PicPins</p>
   </div>
   ${photoSections.join('\n')}
@@ -242,13 +283,16 @@ export default function App() {
   async function confirmSave(title: string, currentEditingId: number | null) {
     try {
       if (!viewShotRef.current) return;
-      const flatUri = await viewShotRef.current.capture();
+      const captured = await viewShotRef.current.capture();
       let updated;
       if (currentEditingId) {
+        const flatUri = await persistImage(captured, `flat_${currentEditingId}_${Date.now()}.jpg`);
         updated = savedPhotos.map(p => p.id === currentEditingId ? { ...p, title: title || 'Untitled', pins, flatUri } : p);
       } else {
         const now = Date.now();
-        const newEntry: SavedPhoto = { id: now, uri: photo!, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now, folderId: activeFolderId };
+        const uri = await persistImage(photo!, `photo_${now}.jpg`);
+        const flatUri = await persistImage(captured, `flat_${now}.jpg`);
+        const newEntry: SavedPhoto = { id: now, uri, flatUri, pins, title: title || 'Untitled', timestamp: photoTimestamp ?? now, folderId: activeFolderId };
         updated = [newEntry, ...savedPhotos];
       }
       const jsonString = JSON.stringify(updated);
