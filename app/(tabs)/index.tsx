@@ -187,7 +187,7 @@ export default function App() {
       const photoSections = await Promise.all(
         photos.map(async (p) => {
           const uri = p.flatUri || p.uri;
-          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
           const date = new Date(p.timestamp ?? p.id).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
           return `
             <div class="page">
