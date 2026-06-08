@@ -246,10 +246,11 @@ export default function App() {
 <head>
 <meta charset="utf-8" />
 <style>
+  @page { size: 612px 792px; margin: 0; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, Helvetica, Arial, sans-serif; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; width: 612px; }
   .cover {
-    width: 100%; height: 100vh; overflow: hidden;
+    width: 612px; height: 792px; overflow: hidden;
     page-break-after: always; page-break-inside: avoid;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
     background: #0f0f0f; color: #fff; text-align: center; padding: 40px;
@@ -258,16 +259,16 @@ export default function App() {
   .cover p { font-size: 16px; color: rgba(255,255,255,0.6); }
   .cover .meta { font-size: 14px; color: rgba(255,255,255,0.4); margin-top: 24px; }
   .page {
-    width: 100%; height: 100vh; overflow: hidden;
+    width: 612px; height: 792px; overflow: hidden;
     page-break-after: always; page-break-inside: avoid;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
     padding: 32px; background: #fff;
   }
   .page:last-child { page-break-after: auto; }
-  .page img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); flex-shrink: 1; }
-  .caption { margin-top: 16px; text-align: center; width: 100%; flex-shrink: 0; }
-  .caption .title { display: block; font-size: 20px; font-weight: 600; color: #111; }
-  .caption .date { display: block; font-size: 13px; color: #888; margin-top: 4px; }
+  .page img { max-width: 548px; max-height: 660px; object-fit: contain; border-radius: 6px; box-shadow: 0 3px 14px rgba(0,0,0,0.15); flex-shrink: 1; }
+  .caption { margin-top: 14px; text-align: center; width: 100%; flex-shrink: 0; }
+  .caption .title { display: block; font-size: 18px; font-weight: 600; color: #111; }
+  .caption .date { display: block; font-size: 12px; color: #888; margin-top: 3px; }
 </style>
 </head>
 <body>
