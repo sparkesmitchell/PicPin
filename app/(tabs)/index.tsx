@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import * as Print from 'expo-print';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 type Pin = { id: number; x: number; y: number; note: string };
@@ -169,6 +171,68 @@ export default function App() {
       .filter(p => p.folderId === folderId)
       .sort((a, b) => (b.timestamp ?? b.id) - (a.timestamp ?? a.id));
     return photos.length > 0 ? (photos[0].flatUri || photos[0].uri) : null;
+  }
+
+  async function generateFolderReport(folder: Folder) {
+    const photos = savedPhotos
+      .filter(p => p.folderId === folder.id)
+      .sort((a, b) => (a.timestamp ?? a.id) - (b.timestamp ?? b.id));
+
+    if (photos.length === 0) {
+      Alert.alert('No Photos', 'This folder has no photos to include in a report.');
+      return;
+    }
+
+    try {
+      const photoSections = await Promise.all(
+        photos.map(async (p) => {
+          const uri = p.flatUri || p.uri;
+          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+          const date = new Date(p.timestamp ?? p.id).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+          return `
+            <div class="page">
+              <img src="data:image/jpeg;base64,${base64}" />
+              <div class="caption">
+                <span class="title">${p.title || 'Untitled'}</span>
+                <span class="date">${date}</span>
+              </div>
+            </div>`;
+        })
+      );
+
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: #fff; }
+  .cover { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background: #0f0f0f; color: #fff; text-align: center; padding: 40px; }
+  .cover h1 { font-size: 36px; font-weight: 700; margin-bottom: 12px; }
+  .cover p { font-size: 16px; color: rgba(255,255,255,0.6); }
+  .cover .meta { font-size: 14px; color: rgba(255,255,255,0.4); margin-top: 24px; }
+  .page { page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 32px; background: #fff; }
+  .page img { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+  .caption { margin-top: 20px; text-align: center; width: 100%; }
+  .caption .title { display: block; font-size: 22px; font-weight: 600; color: #111; }
+  .caption .date { display: block; font-size: 14px; color: #888; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="cover">
+    <h1>${folder.name}</h1>
+    <p>${photos.length} photo${photos.length !== 1 ? 's' : ''}</p>
+    <p class="meta">Generated ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })} · PicPins</p>
+  </div>
+  ${photoSections.join('\n')}
+</body>
+</html>`;
+
+      const { uri: pdfUri } = await Print.printToFileAsync({ html, base64: false });
+      await Sharing.shareAsync(pdfUri, { mimeType: 'application/pdf', dialogTitle: `${folder.name} Report` });
+    } catch (e: any) {
+      Alert.alert('Error', 'Could not generate report: ' + e.message);
+    }
   }
 
   async function saveCurrentPhoto() {
@@ -367,28 +431,37 @@ export default function App() {
               const count = getFolderPhotoCount(folder.id);
               const thumb = getFolderThumbnail(folder.id);
               return (
-                <TouchableOpacity
-                  key={folder.id}
-                  style={styles.folderCard}
-                  onPress={() => setActiveFolderView(folder.id)}
-                >
-                  {thumb ? (
-                    <Image source={{ uri: thumb }} style={styles.folderThumbnail} />
-                  ) : (
-                    <View style={[styles.folderThumbnail, styles.folderThumbnailEmpty]}>
-                      <Text style={styles.folderEmptyIcon}>📁</Text>
+                <View key={folder.id} style={styles.folderCard}>
+                  <TouchableOpacity
+                    style={styles.folderCardMain}
+                    onPress={() => setActiveFolderView(folder.id)}
+                  >
+                    {thumb ? (
+                      <Image source={{ uri: thumb }} style={styles.folderThumbnail} />
+                    ) : (
+                      <View style={[styles.folderThumbnail, styles.folderThumbnailEmpty]}>
+                        <Text style={styles.folderEmptyIcon}>📁</Text>
+                      </View>
+                    )}
+                    <View style={styles.folderCardInfo}>
+                      <Text style={styles.folderName}>{folder.name}</Text>
+                      <Text style={styles.folderCount}>{count} photo{count !== 1 ? 's' : ''}</Text>
                     </View>
-                  )}
-                  <View style={styles.folderCardInfo}>
-                    <Text style={styles.folderName}>{folder.name}</Text>
-                    <Text style={styles.folderCount}>{count} photo{count !== 1 ? 's' : ''}</Text>
-                  </View>
-                  {folder.id !== 'general' && (
-                    <TouchableOpacity style={styles.folderDeleteBtn} onPress={() => deleteFolder(folder.id)}>
-                      <Text style={styles.folderDeleteText}>✕</Text>
+                    {folder.id !== 'general' && (
+                      <TouchableOpacity style={styles.folderDeleteBtn} onPress={() => deleteFolder(folder.id)}>
+                        <Text style={styles.folderDeleteText}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                  <View style={styles.folderCardActions}>
+                    <TouchableOpacity
+                      style={styles.folderReportBtn}
+                      onPress={() => generateFolderReport(folder)}
+                    >
+                      <Text style={styles.folderReportBtnText}>📄 Generate Report</Text>
                     </TouchableOpacity>
-                  )}
-                </TouchableOpacity>
+                  </View>
+                </View>
               );
             })}
           </ScrollView>
@@ -802,8 +875,17 @@ const styles = StyleSheet.create({
   folderCard: {
     backgroundColor: COLORS.surface, borderRadius: 16, overflow: 'hidden',
     borderWidth: 1, borderColor: COLORS.border,
+  },
+  folderCardMain: {
     flexDirection: 'row', alignItems: 'center',
   },
+  folderCardActions: {
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+  },
+  folderReportBtn: {
+    padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2,
+  },
+  folderReportBtnText: { color: COLORS.accent, fontSize: 14, fontWeight: '600' },
   folderThumbnail: { width: 80, height: 80 },
   folderThumbnailEmpty: {
     backgroundColor: COLORS.surface2, justifyContent: 'center', alignItems: 'center',
