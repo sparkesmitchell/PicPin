@@ -115,13 +115,19 @@ function PhotoRow({
   onDelete: (entry: SavedPhoto) => void;
   onSaveToRoll: (uri: string) => void;
 }) {
+  // The panResponder is memoized on entry.id, so it must call the *latest*
+  // handlers through a ref — otherwise it captures the first render's
+  // callbacks (when draggingId was still null) and every drag bails out.
+  const cbRef = useRef({ onStart, onMove, onEnd });
+  cbRef.current = { onStart, onMove, onEnd };
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => onStart(entry.id),
-    onPanResponderMove: (_, gs) => onMove(gs.dy),
-    onPanResponderRelease: () => onEnd(),
-    onPanResponderTerminate: () => onEnd(),
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => cbRef.current.onStart(entry.id),
+    onPanResponderMove: (_, gs) => cbRef.current.onMove(gs.dy),
+    onPanResponderRelease: () => cbRef.current.onEnd(),
+    onPanResponderTerminate: () => cbRef.current.onEnd(),
   }), [entry.id]);
 
   return (
@@ -169,6 +175,9 @@ function DraggablePhotoList({
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const dataRef = useRef(data);
   dataRef.current = data;
+  // Mirror draggingId in a ref so the gesture handlers read the live value
+  // synchronously rather than a stale snapshot from a prior render.
+  const draggingIdRef = useRef<number | null>(null);
   const startIndexRef = useRef(0);
   const dragTop = useRef(new Animated.Value(0)).current;
 
@@ -183,11 +192,12 @@ function DraggablePhotoList({
     if (index === -1) return;
     startIndexRef.current = index;
     dragTop.setValue(index * ROW_HEIGHT);
+    draggingIdRef.current = id;
     setDraggingId(id);
   }
 
   function handleMove(dy: number) {
-    const id = draggingId;
+    const id = draggingIdRef.current;
     if (id == null) return;
     const visualTop = startIndexRef.current * ROW_HEIGHT + dy;
     dragTop.setValue(visualTop);
@@ -203,7 +213,8 @@ function DraggablePhotoList({
   }
 
   function handleEnd() {
-    if (draggingId == null) return;
+    if (draggingIdRef.current == null) return;
+    draggingIdRef.current = null;
     setDraggingId(null);
     onReorder(dataRef.current);
   }
