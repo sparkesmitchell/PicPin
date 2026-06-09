@@ -8,7 +8,7 @@ import * as Print from 'expo-print';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 type Pin = { id: number; x: number; y: number; note: string };
@@ -16,6 +16,8 @@ type Folder = { id: string; name: string; createdAt: number };
 type SavedPhoto = { id: number; uri: string; flatUri?: string; pins: Pin[]; title: string; timestamp?: number; folderId: string };
 
 const DEFAULT_FOLDER: Folder = { id: 'general', name: 'General', createdAt: 0 };
+// Height (incl. gap) of a single reorderable photo row in a folder.
+const ROW_HEIGHT = 88;
 const STORAGE_KEY_PHOTOS = 'savedPhotos';
 const STORAGE_KEY_FOLDERS = 'savedFolders';
 const PHOTO_DIR = FileSystem.documentDirectory + 'picpins/';
@@ -89,6 +91,145 @@ function DraggablePin({ pin, onTap, onDragEnd, isDragging }: { pin: Pin; onTap: 
         </View>
       ) : null}
     </View>
+  );
+}
+
+function PhotoRow({
+  entry,
+  top,
+  isDragging,
+  onStart,
+  onMove,
+  onEnd,
+  onOpen,
+  onDelete,
+  onSaveToRoll,
+}: {
+  entry: SavedPhoto;
+  top: Animated.Value | number;
+  isDragging: boolean;
+  onStart: (id: number) => void;
+  onMove: (dy: number) => void;
+  onEnd: () => void;
+  onOpen: (entry: SavedPhoto) => void;
+  onDelete: (entry: SavedPhoto) => void;
+  onSaveToRoll: (uri: string) => void;
+}) {
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => onStart(entry.id),
+    onPanResponderMove: (_, gs) => onMove(gs.dy),
+    onPanResponderRelease: () => onEnd(),
+    onPanResponderTerminate: () => onEnd(),
+  }), [entry.id]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.reorderRow,
+        { top, height: ROW_HEIGHT - 8, zIndex: isDragging ? 10 : 1 },
+        isDragging && styles.reorderRowActive,
+      ]}
+    >
+      <TouchableOpacity style={styles.reorderMain} onPress={() => onOpen(entry)} activeOpacity={0.7}>
+        <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.reorderThumb} />
+        <View style={styles.reorderInfo}>
+          <Text style={styles.reorderTitle} numberOfLines={1}>{entry.title || 'Untitled'}</Text>
+          <Text style={styles.reorderPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onSaveToRoll(entry.flatUri || entry.uri)}>
+        <Text style={styles.reorderIconText}>💾</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onDelete(entry)}>
+        <Text style={styles.reorderIconText}>🗑</Text>
+      </TouchableOpacity>
+      <View style={styles.reorderHandle} {...panResponder.panHandlers}>
+        <Text style={styles.reorderHandleText}>≡</Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+function DraggablePhotoList({
+  photos,
+  onReorder,
+  onOpen,
+  onDelete,
+  onSaveToRoll,
+}: {
+  photos: SavedPhoto[];
+  onReorder: (ordered: SavedPhoto[]) => void;
+  onOpen: (entry: SavedPhoto) => void;
+  onDelete: (entry: SavedPhoto) => void;
+  onSaveToRoll: (uri: string) => void;
+}) {
+  const [data, setData] = useState<SavedPhoto[]>(photos);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const startIndexRef = useRef(0);
+  const dragTop = useRef(new Animated.Value(0)).current;
+
+  // Re-sync from props only when the set/order of photos actually changes
+  // (e.g. a photo is deleted or the persisted order updates) — not on every
+  // parent re-render, which would clobber an in-progress drag.
+  const idsKey = photos.map(p => p.id).join(',');
+  useEffect(() => { setData(photos); }, [idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleStart(id: number) {
+    const index = dataRef.current.findIndex(p => p.id === id);
+    if (index === -1) return;
+    startIndexRef.current = index;
+    dragTop.setValue(index * ROW_HEIGHT);
+    setDraggingId(id);
+  }
+
+  function handleMove(dy: number) {
+    const id = draggingId;
+    if (id == null) return;
+    const visualTop = startIndexRef.current * ROW_HEIGHT + dy;
+    dragTop.setValue(visualTop);
+    const target = Math.max(0, Math.min(dataRef.current.length - 1, Math.round(visualTop / ROW_HEIGHT)));
+    setData(prev => {
+      const from = prev.findIndex(p => p.id === id);
+      if (from === -1 || from === target) return prev;
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  }
+
+  function handleEnd() {
+    if (draggingId == null) return;
+    setDraggingId(null);
+    onReorder(dataRef.current);
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.reorderScroll}
+      scrollEnabled={draggingId == null}
+    >
+      <View style={{ height: data.length * ROW_HEIGHT }}>
+        {data.map((entry, index) => (
+          <PhotoRow
+            key={entry.id}
+            entry={entry}
+            top={entry.id === draggingId ? dragTop : index * ROW_HEIGHT}
+            isDragging={entry.id === draggingId}
+            onStart={handleStart}
+            onMove={handleMove}
+            onEnd={handleEnd}
+            onOpen={onOpen}
+            onDelete={onDelete}
+            onSaveToRoll={onSaveToRoll}
+          />
+        ))}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -330,6 +471,15 @@ export default function App() {
     } catch (e: any) { alert('Error: ' + e.message); }
   }
 
+  // Applies a new ordering of one folder's photos back into the global list,
+  // leaving photos from other folders in their existing positions.
+  async function reorderFolderPhotos(folderId: string, ordered: SavedPhoto[]) {
+    let i = 0;
+    const updated = savedPhotos.map(p => (p.folderId === folderId ? ordered[i++] : p));
+    await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
+    setSavedPhotos(updated);
+  }
+
   async function deletePhoto(id: number) {
     const updated = savedPhotos.filter(p => p.id !== id);
     await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
@@ -464,46 +614,33 @@ export default function App() {
         </View>
 
         {inFolder ? (
-          <ScrollView contentContainerStyle={styles.galleryGrid}>
-            {photosInView.length === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyEmoji}>📷</Text>
-                <Text style={styles.emptyTitle}>No photos yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Photos saved to "{currentFolder?.name}" will appear here
-                </Text>
-              </View>
-            )}
-            {photosInView.map(entry => (
-              <View key={entry.id} style={styles.galleryCard}>
-                <TouchableOpacity onPress={() => openSavedPhoto(entry)}>
-                  <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.thumbnail} />
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.cardTitle}>{entry.title || 'Untitled'}</Text>
-                    <Text style={styles.cardPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri || entry.uri)}>
-                    <Text style={styles.cardActionText}>💾 Save</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.cardActionBtn, styles.cardDeleteBtn]}
-                    onPress={() => Alert.alert(
-                      'Delete Photo',
-                      `Delete "${entry.title || 'Untitled'}"? This cannot be undone.`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Delete', style: 'destructive', onPress: () => deletePhoto(entry.id) },
-                      ],
-                    )}
-                  >
-                    <Text style={styles.cardActionText}>🗑 Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
+          photosInView.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>📷</Text>
+              <Text style={styles.emptyTitle}>No photos yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Photos saved to "{currentFolder?.name}" will appear here
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.reorderHint}>Drag ≡ to reorder photos</Text>
+              <DraggablePhotoList
+                photos={photosInView}
+                onReorder={(ordered) => reorderFolderPhotos(activeFolderView!, ordered)}
+                onOpen={openSavedPhoto}
+                onSaveToRoll={(uri) => saveGalleryPhotoToRoll(uri)}
+                onDelete={(entry) => Alert.alert(
+                  'Delete Photo',
+                  `Delete "${entry.title || 'Untitled'}"? This cannot be undone.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => deletePhoto(entry.id) },
+                  ],
+                )}
+              />
+            </>
+          )
         ) : (
           <ScrollView contentContainerStyle={styles.galleryGrid}>
             {folders.map(folder => {
@@ -897,6 +1034,34 @@ const styles = StyleSheet.create({
   cardActionBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2 },
   cardDeleteBtn: { backgroundColor: '#2c1a1a', borderLeftWidth: 1, borderLeftColor: COLORS.border },
   cardActionText: { color: COLORS.text, fontSize: 13 },
+  // Reorderable photo rows (in-folder view)
+  reorderHint: { color: COLORS.textSecondary, fontSize: 13, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  reorderScroll: { padding: 16, paddingTop: 8 },
+  reorderRow: {
+    position: 'absolute', left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: 14, overflow: 'hidden',
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  reorderRowActive: {
+    borderColor: COLORS.accent,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+  },
+  reorderMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  reorderThumb: { width: 72, height: ROW_HEIGHT - 8 },
+  reorderInfo: { flex: 1, paddingHorizontal: 12 },
+  reorderTitle: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
+  reorderPins: { color: COLORS.textSecondary, fontSize: 12, marginTop: 3 },
+  reorderIconBtn: { paddingHorizontal: 8, paddingVertical: 12, justifyContent: 'center', alignItems: 'center' },
+  reorderIconText: { fontSize: 18 },
+  reorderHandle: {
+    width: 48, alignSelf: 'stretch',
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: COLORS.surface2, borderLeftWidth: 1, borderLeftColor: COLORS.border,
+  },
+  reorderHandleText: { color: COLORS.textSecondary, fontSize: 22, fontWeight: '700' },
+
   emptyState: { alignItems: 'center', paddingTop: 80 },
   emptyEmoji: { fontSize: 48, marginBottom: 16 },
   emptyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '600', marginBottom: 8 },
