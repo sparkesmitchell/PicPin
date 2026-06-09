@@ -950,9 +950,10 @@ const styles = StyleSheet.create({
   // Camera screen
   cameraTopBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    paddingTop: 56, paddingBottom: 16, paddingHorizontal: 24,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 12,
+    paddingTop: 52, paddingBottom: 10, paddingHorizontal: 24,
     backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
   },
   appName: { color: '#fff', fontSize: 20, fontWeight: '700', letterSpacing: 1 },
   cameraTopBarLandscape: {
@@ -1130,7 +1131,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
-    marginTop: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
     maxWidth: 220,
   },
   folderPillText: { color: '#fff', fontSize: 13, fontWeight: '600', flexShrink: 1 },
