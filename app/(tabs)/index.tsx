@@ -31,11 +31,38 @@ async function persistImage(uri: string, name: string): Promise<string> {
     if (!dir.exists) await FileSystem.makeDirectoryAsync(PHOTO_DIR, { intermediates: true });
     const dest = PHOTO_DIR + name;
     await FileSystem.copyAsync({ from: uri, to: dest });
-    return dest;
+    // Store only the bare filename, never the absolute path. On iOS the app's
+    // data container has a UUID that changes on every install/update (e.g.
+    // updating from TestFlight or the App Store), which invalidates any saved
+    // absolute path even though the file itself still exists in Documents. We
+    // rebuild the absolute path from the *current* document directory at read
+    // time via resolveUri().
+    return name;
   } catch (e) {
     console.log('persistImage failed', e);
     return uri;
   }
+}
+
+// Rebuilds an absolute file URI for a stored photo reference. Handles the new
+// bare-filename format as well as legacy absolute paths saved by older app
+// versions (whose container UUID may no longer match the current install),
+// always resolving against the current document directory so photos survive
+// app updates.
+function resolveUri(stored: string): string;
+function resolveUri(stored?: string): string | undefined;
+function resolveUri(stored?: string): string | undefined {
+  if (!stored) return stored;
+  if (stored.startsWith(PHOTO_DIR)) return stored;
+  // Legacy absolute path pointing into our photo dir under an old container.
+  if (stored.includes('/picpins/')) {
+    return PHOTO_DIR + stored.substring(stored.lastIndexOf('/') + 1);
+  }
+  // Bare filename (current format).
+  if (!stored.includes('/')) return PHOTO_DIR + stored;
+  // Anything else (e.g. a temp uri left behind by a failed persist) is returned
+  // unchanged.
+  return stored;
 }
 
 const COLORS = {
@@ -139,13 +166,13 @@ function PhotoRow({
       ]}
     >
       <TouchableOpacity style={styles.reorderMain} onPress={() => onOpen(entry)} activeOpacity={0.7}>
-        <Image source={{ uri: entry.flatUri || entry.uri }} style={styles.reorderThumb} />
+        <Image source={{ uri: resolveUri(entry.flatUri || entry.uri) }} style={styles.reorderThumb} />
         <View style={styles.reorderInfo}>
           <Text style={styles.reorderTitle} numberOfLines={1}>{entry.title || 'Untitled'}</Text>
           <Text style={styles.reorderPins}>{entry.pins.length} pin{entry.pins.length !== 1 ? 's' : ''}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onSaveToRoll(entry.flatUri || entry.uri)}>
+      <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onSaveToRoll(resolveUri(entry.flatUri || entry.uri))}>
         <Text style={styles.reorderIconText}>💾</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onDelete(entry)}>
@@ -340,7 +367,7 @@ export default function App() {
     const photos = savedPhotos
       .filter(p => p.folderId === folderId)
       .sort((a, b) => (b.timestamp ?? b.id) - (a.timestamp ?? a.id));
-    return photos.length > 0 ? (photos[0].flatUri || photos[0].uri) : null;
+    return photos.length > 0 ? resolveUri(photos[0].flatUri || photos[0].uri) : null;
   }
 
   async function generateFolderReport(folder: Folder) {
@@ -368,7 +395,7 @@ export default function App() {
 
       const sections = await Promise.all(
         photos.map(async (p) => {
-          const uri = await firstReadable([p.flatUri, p.uri]);
+          const uri = await firstReadable([resolveUri(p.flatUri), resolveUri(p.uri)]);
           if (!uri) return null;
           try {
             const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
@@ -575,7 +602,7 @@ export default function App() {
   }
 
   function openSavedPhoto(entry: SavedPhoto) {
-    setPhoto(entry.uri);
+    setPhoto(resolveUri(entry.uri));
     setPins(entry.pins);
     setEditingPhotoId(entry.id);
     setPhotoTimestamp(entry.timestamp ?? entry.id);
