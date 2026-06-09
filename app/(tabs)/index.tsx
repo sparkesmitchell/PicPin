@@ -170,8 +170,8 @@ export default function App() {
 
   async function deleteFolder(id: string) {
     if (id === 'general') return;
-    // Delete the folder along with every photo it contains.
-    const updatedPhotos = savedPhotos.filter(p => p.folderId !== id);
+    // Deleting a folder moves its photos to General rather than removing them.
+    const updatedPhotos = savedPhotos.map(p => p.folderId === id ? { ...p, folderId: 'general' } : p);
     await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updatedPhotos));
     setSavedPhotos(updatedPhotos);
     const updatedFolders = folders.filter(f => f.id !== id);
@@ -531,7 +531,7 @@ export default function App() {
                         style={styles.folderDeleteBtn}
                         onPress={() => Alert.alert(
                           'Delete Folder',
-                          `Delete "${folder.name}"? This will permanently delete the folder and all ${count} photo${count !== 1 ? 's' : ''} inside it. This cannot be undone.`,
+                          `Are you sure you want to delete "${folder.name}"? Its photos will be moved to General.`,
                           [
                             { text: 'Cancel', style: 'cancel' },
                             { text: 'Delete', style: 'destructive', onPress: () => deleteFolder(folder.id) },
