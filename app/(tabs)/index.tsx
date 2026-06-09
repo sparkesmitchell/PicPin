@@ -131,6 +131,7 @@ function PhotoRow({
   onOpen,
   onDelete,
   onSaveToRoll,
+  onMoveToFolder,
 }: {
   entry: SavedPhoto;
   top: Animated.Value | number;
@@ -141,6 +142,7 @@ function PhotoRow({
   onOpen: (entry: SavedPhoto) => void;
   onDelete: (entry: SavedPhoto) => void;
   onSaveToRoll: (uri: string) => void;
+  onMoveToFolder: (entry: SavedPhoto) => void;
 }) {
   // The panResponder is memoized on entry.id, so it must call the *latest*
   // handlers through a ref — otherwise it captures the first render's
@@ -175,6 +177,9 @@ function PhotoRow({
       <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onSaveToRoll(resolveUri(entry.flatUri || entry.uri))}>
         <Text style={styles.reorderIconText}>💾</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onMoveToFolder(entry)}>
+        <Text style={styles.reorderIconText}>📁</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.reorderIconBtn} onPress={() => onDelete(entry)}>
         <Text style={styles.reorderIconText}>🗑</Text>
       </TouchableOpacity>
@@ -191,12 +196,14 @@ function DraggablePhotoList({
   onOpen,
   onDelete,
   onSaveToRoll,
+  onMoveToFolder,
 }: {
   photos: SavedPhoto[];
   onReorder: (ordered: SavedPhoto[]) => void;
   onOpen: (entry: SavedPhoto) => void;
   onDelete: (entry: SavedPhoto) => void;
   onSaveToRoll: (uri: string) => void;
+  onMoveToFolder: (entry: SavedPhoto) => void;
 }) {
   const [data, setData] = useState<SavedPhoto[]>(photos);
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -264,6 +271,7 @@ function DraggablePhotoList({
             onOpen={onOpen}
             onDelete={onDelete}
             onSaveToRoll={onSaveToRoll}
+            onMoveToFolder={onMoveToFolder}
           />
         ))}
       </View>
@@ -290,6 +298,8 @@ export default function App() {
   const [showTitleModal, setShowTitleModal] = useState(false);
   const [titleText, setTitleText] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState<number | null>(null);
+  // The photo whose "move to folder" picker is currently open, if any.
+  const [movingPhoto, setMovingPhoto] = useState<SavedPhoto | null>(null);
   const cameraRef = useRef<any>(null);
   const viewShotRef = useRef<any>(null);
   const [draggingPinId, setDraggingPinId] = useState<number | null>(null);
@@ -518,6 +528,15 @@ export default function App() {
     setSavedPhotos(updated);
   }
 
+  // Moves a single photo into a different folder. New photos are placed at the
+  // front of the destination folder (matching how freshly saved photos appear);
+  // the photo's position among other folders is otherwise preserved.
+  async function movePhotoToFolder(photoId: number, folderId: string) {
+    const updated = savedPhotos.map(p => p.id === photoId ? { ...p, folderId } : p);
+    await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
+    setSavedPhotos(updated);
+  }
+
   async function deletePhoto(id: number) {
     const updated = savedPhotos.filter(p => p.id !== id);
     await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
@@ -668,6 +687,7 @@ export default function App() {
                 onReorder={(ordered) => reorderFolderPhotos(activeFolderView!, ordered)}
                 onOpen={openSavedPhoto}
                 onSaveToRoll={(uri) => saveGalleryPhotoToRoll(uri)}
+                onMoveToFolder={(entry) => setMovingPhoto(entry)}
                 onDelete={(entry) => Alert.alert(
                   'Delete Photo',
                   `Delete "${entry.title || 'Untitled'}"? This cannot be undone.`,
@@ -961,6 +981,46 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={movingPhoto !== null}
+        transparent
+        animationType="slide"
+        supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Move to Folder</Text>
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              {folders.map(folder => {
+                const isCurrent = movingPhoto?.folderId === folder.id;
+                return (
+                  <TouchableOpacity
+                    key={folder.id}
+                    style={styles.folderPickerRow}
+                    disabled={isCurrent}
+                    onPress={() => {
+                      if (movingPhoto) movePhotoToFolder(movingPhoto.id, folder.id);
+                      setMovingPhoto(null);
+                    }}
+                  >
+                    <Text style={[styles.folderPickerRowText, isCurrent && { color: COLORS.textSecondary }]}>
+                      {isCurrent ? '✓  ' : '    '}{folder.name}{isCurrent ? '  (current)' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => setMovingPhoto(null)}
+            >
+              <Text style={styles.deleteText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </View>
   );
