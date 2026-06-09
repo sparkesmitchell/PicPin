@@ -170,7 +170,8 @@ export default function App() {
 
   async function deleteFolder(id: string) {
     if (id === 'general') return;
-    const updatedPhotos = savedPhotos.map(p => p.folderId === id ? { ...p, folderId: 'general' } : p);
+    // Delete the folder along with every photo it contains.
+    const updatedPhotos = savedPhotos.filter(p => p.folderId !== id);
     await AsyncStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updatedPhotos));
     setSavedPhotos(updatedPhotos);
     const updatedFolders = folders.filter(f => f.id !== id);
@@ -486,7 +487,17 @@ export default function App() {
                   <TouchableOpacity style={styles.cardActionBtn} onPress={() => saveGalleryPhotoToRoll(entry.flatUri || entry.uri)}>
                     <Text style={styles.cardActionText}>💾 Save</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.cardActionBtn, styles.cardDeleteBtn]} onPress={() => deletePhoto(entry.id)}>
+                  <TouchableOpacity
+                    style={[styles.cardActionBtn, styles.cardDeleteBtn]}
+                    onPress={() => Alert.alert(
+                      'Delete Photo',
+                      `Delete "${entry.title || 'Untitled'}"? This cannot be undone.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deletePhoto(entry.id) },
+                      ],
+                    )}
+                  >
                     <Text style={styles.cardActionText}>🗑 Delete</Text>
                   </TouchableOpacity>
                 </View>
@@ -516,7 +527,17 @@ export default function App() {
                       <Text style={styles.folderCount}>{count} photo{count !== 1 ? 's' : ''}</Text>
                     </View>
                     {folder.id !== 'general' && (
-                      <TouchableOpacity style={styles.folderDeleteBtn} onPress={() => deleteFolder(folder.id)}>
+                      <TouchableOpacity
+                        style={styles.folderDeleteBtn}
+                        onPress={() => Alert.alert(
+                          'Delete Folder',
+                          `Delete "${folder.name}"? This will permanently delete the folder and all ${count} photo${count !== 1 ? 's' : ''} inside it. This cannot be undone.`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => deleteFolder(folder.id) },
+                          ],
+                        )}
+                      >
                         <Text style={styles.folderDeleteText}>✕</Text>
                       </TouchableOpacity>
                     )}
