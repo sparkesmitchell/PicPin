@@ -344,9 +344,9 @@ export default function App() {
   }
 
   async function generateFolderReport(folder: Folder) {
-    const photos = savedPhotos
-      .filter(p => p.folderId === folder.id)
-      .sort((a, b) => (a.timestamp ?? a.id) - (b.timestamp ?? b.id));
+    // Use the folder's arranged order (as shown in the gallery / set by
+    // drag-to-reorder) rather than sorting by capture time.
+    const photos = savedPhotos.filter(p => p.folderId === folder.id);
 
     if (photos.length === 0) {
       Alert.alert('No Photos', 'This folder has no photos to include in a report.');
