@@ -319,6 +319,12 @@ export default function App() {
       setShowTitleModal(false);
       setTitleText('');
       setEditingPhotoId(null);
+      // Return to the capture screen after saving. Edits return to the gallery
+      // they were opened from; new photos go straight back to the camera.
+      setPhoto(null);
+      setPins([]);
+      setPhotoTimestamp(null);
+      if (currentEditingId) setShowGallery(true);
       alert(currentEditingId ? 'Photo updated!' : 'Photo saved!');
     } catch (e: any) { alert('Error: ' + e.message); }
   }
