@@ -750,6 +750,46 @@ export default function App() {
             })}
           </ScrollView>
         )}
+
+        <Modal
+          visible={movingPhoto !== null}
+          transparent
+          animationType="slide"
+          supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Move to Folder</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {folders.map(folder => {
+                  const isCurrent = movingPhoto?.folderId === folder.id;
+                  return (
+                    <TouchableOpacity
+                      key={folder.id}
+                      style={styles.folderPickerRow}
+                      disabled={isCurrent}
+                      onPress={() => {
+                        if (movingPhoto) movePhotoToFolder(movingPhoto.id, folder.id);
+                        setMovingPhoto(null);
+                      }}
+                    >
+                      <Text style={[styles.folderPickerRowText, isCurrent && { color: COLORS.textSecondary }]}>
+                        {isCurrent ? '✓  ' : '    '}{folder.name}{isCurrent ? '  (current)' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => setMovingPhoto(null)}
+              >
+                <Text style={styles.deleteText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -981,46 +1021,6 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
-        visible={movingPhoto !== null}
-        transparent
-        animationType="slide"
-        supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Move to Folder</Text>
-            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-              {folders.map(folder => {
-                const isCurrent = movingPhoto?.folderId === folder.id;
-                return (
-                  <TouchableOpacity
-                    key={folder.id}
-                    style={styles.folderPickerRow}
-                    disabled={isCurrent}
-                    onPress={() => {
-                      if (movingPhoto) movePhotoToFolder(movingPhoto.id, folder.id);
-                      setMovingPhoto(null);
-                    }}
-                  >
-                    <Text style={[styles.folderPickerRowText, isCurrent && { color: COLORS.textSecondary }]}>
-                      {isCurrent ? '✓  ' : '    '}{folder.name}{isCurrent ? '  (current)' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={() => setMovingPhoto(null)}
-            >
-              <Text style={styles.deleteText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </Modal>
     </View>
   );
